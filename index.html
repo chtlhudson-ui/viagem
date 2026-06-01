@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Viagem Pro</title>
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Viagem Pro">
+    <meta name="theme-color" content="#1f3a5f">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-180.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+        }
+        .safe-top { padding-top: max(env(safe-area-inset-top), 1rem); }
+        .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 5rem); }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .modal-enter { animation: slideUp 0.25s ease-out forwards; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .agenda-bg { background-image: linear-gradient(to bottom, #f1f5f9 1px, transparent 1px); background-size: 100% 60px; }
+        .agenda-event { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+        .timeline-line::before { content: ''; position: absolute; left: 28px; top: 24px; bottom: -24px; width: 2px; background-color: #e2e8f0; z-index: 0; }
+        .timeline-item:last-child .timeline-line::before { display: none; }
+    </style>
+</head>
+<body class="text-slate-800 flex flex-col min-h-screen">
+
+    <!-- ================= TELA INICIAL ================= -->
+    <div id="screen-home" class="flex-1 flex flex-col max-w-md w-full mx-auto px-5 py-8 safe-top">
+        <div class="flex items-center justify-between mb-5">
+            <button onclick="openSyncModal()" class="js-sync-status text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">Sincronização</button>
+            <button onclick="openSyncModal()" class="p-2 text-slate-400 hover:text-indigo-600"><i data-lucide="settings" class="w-5 h-5"></i></button>
+        </div>
+        <h1 class="text-3xl font-black text-slate-900 leading-tight mb-2">Para onde vamos,<br><span class="text-indigo-600">Gabriela e Charlie?</span></h1>
+        <p class="text-slate-500 text-sm mb-8">Gerencie suas expedições.</p>
+
+        <div id="trips-list" class="space-y-4 mb-6"></div>
+
+        <button onclick="openTripModal()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 flex justify-center items-center gap-2 active:scale-95 transition-transform">
+            <i data-lucide="plane-takeoff"></i> Nova Viagem
+        </button>
+    </div>
+
+    <!-- ================= TELA DO APP ================= -->
+    <div id="screen-app" class="hidden flex-1 flex flex-col w-full relative h-screen overflow-hidden">
+
+        <header class="bg-slate-900 text-white flex-none safe-top pb-3 px-5 flex justify-between items-center shadow-md relative z-40">
+            <div class="flex items-center gap-3 min-w-0">
+                <button onclick="goHome()" class="p-1 text-slate-400 hover:text-white"><i data-lucide="chevron-left"></i></button>
+                <h1 id="header-trip-name" class="text-lg font-bold tracking-tight truncate">Expedição</h1>
+                <span id="header-lock" class="hidden text-[10px] bg-slate-700 text-amber-300 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide flex items-center gap-1 flex-none"><i data-lucide="lock" class="w-3 h-3"></i> Finalizada</span>
+            </div>
+            <button onclick="openSyncModal()" class="js-sync-status text-[10px] font-bold px-2 py-1 rounded-full bg-slate-700 text-slate-300 flex-none">Sinc</button>
+        </header>
+
+        <main class="flex-1 overflow-y-auto max-w-md w-full mx-auto pb-24 relative" id="main-scroll">
+
+            <!-- 1. ABA RESUMO -->
+            <section id="view-resumo" class="p-4 space-y-6 block">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+                        <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Custo Global</span>
+                        <span id="dash-total" class="text-xl font-black text-slate-900">R$ 0,00</span>
+                    </div>
+                    <div class="bg-indigo-600 p-4 rounded-2xl shadow-sm border border-indigo-500 flex flex-col items-center text-white">
+                        <span class="text-[10px] text-indigo-200 font-bold uppercase tracking-wider mb-1">Média Diária</span>
+                        <span id="dash-media" class="text-xl font-black">R$ 0,00</span>
+                    </div>
+                </div>
+
+                <div id="dash-acerto" class="p-5 rounded-2xl text-white shadow-md bg-slate-800"></div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-3">Participação de Custo</h4>
+                    <div class="relative h-40 w-full flex justify-center"><canvas id="chart-shares"></canvas></div>
+                </div>
+
+                <div id="dash-actions"></div>
+                <div id="card-transport"></div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider">Gastos por dia</h4>
+                    <p id="daily-total" class="text-2xl font-black text-slate-900 leading-tight">R$ 0,00</p>
+                    <p class="text-[10px] text-slate-400 mb-3">Inclui deslocamento diário. Exceto logística, voos e hotéis.</p>
+                    <div class="grid grid-cols-2 gap-2 mb-3">
+                        <select id="filter-resumo-payer" onchange="renderDashboard()" class="p-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                            <option value="Todos">Quem pagou</option>
+                            <option value="Charlie">Charlie</option>
+                            <option value="Gabriela">Gabriela</option>
+                            <option value="Gabriela e Charlie">Ambos</option>
+                        </select>
+                        <select id="filter-resumo-used" onchange="renderDashboard()" class="p-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                            <option value="Todos">Quem usou</option>
+                            <option value="Charlie">Charlie</option>
+                            <option value="Gabriela">Gabriela</option>
+                            <option value="Ambos">Ambos</option>
+                        </select>
+                    </div>
+                    <div id="daily-rows"></div>
+                </div>
+            </section>
+
+            <!-- 2. ABA PLANEJAMENTO -->
+            <section id="view-planejar" class="p-4 space-y-4 hidden">
+                <div class="grid grid-cols-3 gap-2">
+                    <select id="filter-plan-day" onchange="renderPlanejamento()" class="p-2 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                        <option value="Todos">Todos os dias</option>
+                    </select>
+                    <select id="filter-plan-payer" onchange="renderPlanejamento()" class="p-2 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                        <option value="Todos">Quem pagou</option>
+                        <option value="Charlie">Charlie</option>
+                        <option value="Gabriela">Gabriela</option>
+                        <option value="Gabriela e Charlie">Ambos</option>
+                    </select>
+                    <select id="filter-plan-status" onchange="renderPlanejamento()" class="p-2 bg-white border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
+                        <option value="Todos">Status</option>
+                        <option value="Confirmada">Confirmadas</option>
+                        <option value="Pendente">Pendentes</option>
+                    </select>
+                </div>
+
+                <button id="btn-add-plan" onclick="openPlanModal()" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-xl shadow-md text-sm flex justify-center items-center gap-2">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Adicionar ao Planejamento
+                </button>
+
+                <div id="plan-list" class="space-y-1 mt-2"></div>
+            </section>
+
+            <!-- 3. ABA AGENDA -->
+            <section id="view-agenda" class="hidden flex flex-col h-full">
+                <div class="bg-white border-b border-slate-200 px-4 py-3 flex-none z-30 shadow-sm flex flex-col gap-3">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-sm font-bold text-slate-800">Programação</h2>
+                        <div class="flex bg-slate-100 p-1 rounded-lg">
+                            <button onclick="setAgendaView('list')" id="btn-view-list" class="p-1.5 rounded bg-white shadow text-indigo-600 transition-all"><i data-lucide="list" class="w-4 h-4"></i></button>
+                            <button onclick="setAgendaView('grid')" id="btn-view-grid" class="p-1.5 rounded text-slate-400 hover:text-indigo-600 transition-all"><i data-lucide="layout-grid" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
+                    <div class="flex overflow-x-auto hide-scrollbar gap-2" id="agenda-days-filter"></div>
+                </div>
+                <div class="flex-1 overflow-y-auto relative bg-slate-50 px-2 pt-2 pb-24" id="agenda-content-area"></div>
+            </section>
+
+        </main>
+
+        <nav class="bg-white border-t border-slate-200 fixed bottom-0 w-full z-40 pb-[env(safe-area-inset-bottom)]">
+            <div class="max-w-md mx-auto flex justify-around items-center h-16 px-2">
+                <button onclick="switchTab('resumo')" class="nav-btn flex flex-col items-center w-full text-indigo-600" id="nav-resumo">
+                    <i data-lucide="pie-chart" class="w-6 h-6 mb-1"></i><span class="text-[10px] font-medium">Resumo</span>
+                </button>
+                <button onclick="switchTab('planejar')" class="nav-btn flex flex-col items-center w-full text-slate-400" id="nav-planejar">
+                    <i data-lucide="clipboard-list" class="w-6 h-6 mb-1"></i><span class="text-[10px] font-medium">Planejar</span>
+                </button>
+                <button onclick="switchTab('agenda')" class="nav-btn flex flex-col items-center w-full text-slate-400" id="nav-agenda">
+                    <i data-lucide="calendar-days" class="w-6 h-6 mb-1"></i><span class="text-[10px] font-medium">Agenda</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- ================= MODALS ================= -->
+    <div id="modal-overlay" class="hidden fixed inset-0 bg-slate-900/60 z-50 backdrop-blur-sm" onclick="closeAllModals()"></div>
+
+    <template id="tpl-finance">
+        <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 mt-4">
+            <h3 class="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-1"><i data-lucide="wallet" class="w-4 h-4"></i> Área Financeira (Calcula no Dash)</h3>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-1">Valor Total (R$)</label>
+                    <input type="number" step="0.01" class="val-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-900">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-1">Forma de Pagamento</label>
+                    <select class="pay-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm">
+                        <option value="Crédito">Cartão de Crédito</option>
+                        <option value="Astro Pay">Astro Pay</option>
+                        <option value="Wise">Wise</option>
+                        <option value="Pix">Pix</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-1">Quem Pagou?</label>
+                    <select class="paid-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm">
+                        <option value="Charlie">Charlie</option>
+                        <option value="Gabriela">Gabriela</option>
+                        <option value="Gabriela e Charlie">Ambos (já acertado)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-1">Quem Usou?</label>
+                    <select class="used-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm">
+                        <option value="Ambos">Ambos (Divide 50%)</option>
+                        <option value="Charlie">Só Charlie</option>
+                        <option value="Gabriela">Só Gabriela</option>
+                    </select>
+                </div>
+            </div>
+            <p class="paid-note hidden text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg p-2 leading-snug">Pagamento já acertado entre vocês: entra no custo da viagem e divide 50/50, mas não gera dívida no acerto.</p>
+        </div>
+    </template>
+
+    <!-- Modal: Viagem -->
+    <div id="modal-trip" class="hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-w-md mx-auto modal-enter p-6 pb-[max(env(safe-area-inset-bottom),1.5rem)] shadow-2xl">
+        <div class="flex justify-between items-center mb-5"><h2 class="text-xl font-bold">Configurar Viagem</h2><button onclick="closeAllModals()" class="p-2 bg-slate-100 rounded-full"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+        <form onsubmit="saveTrip(event)" class="space-y-4">
+            <input type="hidden" id="trip-id">
+            <div><label class="block text-xs font-bold text-slate-500 mb-1">Destino</label><input type="text" id="trip-name" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"></div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs font-bold text-slate-500 mb-1">Início</label><input type="date" id="trip-start" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"></div>
+                <div><label class="block text-xs font-bold text-slate-500 mb-1">Fim</label><input type="date" id="trip-end" required class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"></div>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl mt-2">Salvar</button>
+            <button type="button" id="btn-delete-trip" onclick="deleteTrip()" class="hidden w-full text-red-500 font-bold py-3 rounded-xl bg-red-50">Excluir Viagem</button>
+        </form>
+    </div>
+
+    <!-- Modal: Planejamento -->
+    <div id="modal-plan" class="hidden fixed bottom-0 left-0 right-0 top-12 z-50 bg-white rounded-t-3xl max-w-md mx-auto modal-enter flex flex-col shadow-2xl">
+        <div class="flex justify-between items-center p-5 border-b border-slate-100"><h2 class="text-lg font-bold" id="p-title">Lançamento</h2><button onclick="closeAllModals()" class="p-2 bg-slate-100 rounded-full"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+        <div class="flex-1 overflow-y-auto p-5 pb-10">
+            <form id="form-plan" onsubmit="savePlanejamento(event)" class="space-y-4">
+                <input type="hidden" id="p-id">
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Data início</label><input type="date" id="p-date" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Data fim (opcional)</label><input type="date" id="p-end-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                </div>
+                <div>
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Status</label>
+                    <select id="p-status" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700">
+                        <option value="Confirmada">Confirmada</option><option value="Pendente">Pendente / Orçar</option>
+                    </select>
+                </div>
+                <div class="bg-indigo-50 border border-indigo-100 p-3 rounded-xl mt-2 flex gap-2 items-start mb-2">
+                    <i data-lucide="calendar-check" class="w-4 h-4 text-indigo-500 mt-0.5"></i>
+                    <p class="text-[10px] text-indigo-800 leading-snug">O horário é opcional. Sem horário, o item vai para <strong>"Itens sem hora agendada"</strong> no topo do dia. Para algo que vira a noite ou dura vários dias (ex.: ônibus noturno, hotel), preencha a <strong>Data fim</strong>.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-2">
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Hora Início (Opcional)</label><input type="time" id="p-start" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Hora Fim (Opcional)</label><input type="time" id="p-end" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                </div>
+                <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Item / Estabelecimento</label><input type="text" id="p-name" required placeholder="Ex: Voo Latam, Jantar, Uber..." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Tipo</label>
+                        <select id="p-type" onchange="onPlanTypeChange()" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                            <option value="Voo">Voo</option>
+                            <option value="Hospedagem">Hospedagem</option>
+                            <option value="Logística">Logística</option>
+                            <option value="Deslocamento diário">Deslocamento diário</option>
+                            <option value="Passeio">Passeio</option>
+                            <option value="Restaurante">Restaurante</option>
+                            <option value="Presentes">Presentes</option>
+                            <option value="Souvenir próprio">Souvenir próprio</option>
+                            <option value="Outros">Outros</option>
+                        </select>
+                    </div>
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Localizador/Link</label><input type="text" id="p-code" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                </div>
+                <div id="p-logi-wrap" class="hidden">
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Tipo de logística</label>
+                    <select id="p-logi" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                        <option value="Ônibus">Ônibus</option><option value="Metrô">Metrô</option><option value="Trem">Trem</option>
+                        <option value="Táxi/Uber">Táxi / Uber</option><option value="Carro alugado">Carro alugado</option><option value="Combustível">Combustível</option>
+                        <option value="Transfer">Transfer</option><option value="Barco/Ferry">Barco / Ferry</option><option value="A pé">A pé</option><option value="Outro">Outro</option>
+                    </select>
+                </div>
+                <div id="p-desloc-wrap" class="hidden">
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Tipo de deslocamento diário</label>
+                    <select id="p-desloc" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                        <option value="Metrô">Metrô</option><option value="Ônibus">Ônibus</option><option value="Trem urbano">Trem urbano</option>
+                        <option value="Táxi/Uber">Táxi / Uber</option><option value="Bicicleta/Patinete">Bicicleta / Patinete</option><option value="A pé">A pé</option>
+                        <option value="Estacionamento">Estacionamento</option><option value="Pedágio">Pedágio</option><option value="Combustível">Combustível</option><option value="Outro">Outro</option>
+                    </select>
+                </div>
+                <div id="p-outros-wrap" class="hidden">
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Descrição</label>
+                    <input type="text" id="p-outros" placeholder="Descreva o que é..." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                </div>
+                <div id="p-finance-container"></div>
+            </form>
+        </div>
+        <div class="p-5 border-t border-slate-100 bg-white flex gap-2 pb-[max(env(safe-area-inset-bottom),1.25rem)]">
+            <button onclick="document.getElementById('form-plan').requestSubmit()" class="flex-1 bg-slate-900 text-white font-bold py-3 rounded-xl">Salvar</button>
+            <button type="button" id="btn-del-plan" class="hidden px-4 bg-red-50 text-red-600 font-bold py-3 rounded-xl" onclick="deletePlanejamento()"><i data-lucide="trash" class="w-5 h-5"></i></button>
+        </div>
+    </div>
+
+    <!-- Modal: Sincronização -->
+    <div id="modal-sync" class="hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-w-md mx-auto modal-enter p-6 pb-[max(env(safe-area-inset-bottom),1.5rem)] shadow-2xl">
+        <div class="flex justify-between items-center mb-5"><h2 class="text-xl font-bold">Sincronização</h2><button onclick="closeAllModals()" class="p-2 bg-slate-100 rounded-full"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+        <div class="space-y-4">
+            <div class="flex items-center gap-2"><span class="js-sync-status text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">Sincronização</span><span id="sync-last" class="text-[10px] text-slate-400"></span></div>
+            <div><label class="block text-xs font-bold text-slate-500 mb-1">URL de sincronização (/exec)</label><input type="url" id="sync-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+            <div><label class="block text-xs font-bold text-slate-500 mb-1">Token</label><input type="text" id="sync-token" placeholder="sua senha" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+            <button onclick="saveSyncConfig()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl">Salvar e sincronizar</button>
+            <button onclick="sync(true)" class="w-full bg-slate-100 text-slate-700 font-bold py-3 rounded-xl">Sincronizar agora</button>
+            <p class="text-[11px] text-slate-400 leading-snug">A URL e o token ficam salvos só neste aparelho. Use os mesmos nos dois celulares para compartilhar os dados.</p>
+        </div>
+    </div>
+
+    <!-- SCRIPT PRINCIPAL -->
+    <script>
+        lucide.createIcons();
+        document.getElementById('p-finance-container').innerHTML = document.getElementById('tpl-finance').innerHTML;
+
+        let dbTrips = JSON.parse(localStorage.getItem('vp4_trips')) || [];
+        let dbData = JSON.parse(localStorage.getItem('vp4_data')) || {};
+        let pendingDeletes = JSON.parse(localStorage.getItem('vp_pending') || '{"viagens":[],"itens":[]}');
+        let activeTripId = null;
+        let selectedDay = null;
+        let chartInstance = null;
+        let agendaViewMode = 'list';
+        let currentTab = 'resumo';
+        let syncing = false, syncTimer = null;
+
+        const TRANSPORT_TYPES = ['Logística', 'Voo', 'Hospedagem'];
+        const TYPE_COLORS = {
+            'Voo':                 { dot:'bg-sky-500',     grid:'bg-sky-500 border-sky-400/50 hover:bg-sky-600' },
+            'Hospedagem':          { dot:'bg-emerald-500', grid:'bg-emerald-500 border-emerald-400/50 hover:bg-emerald-600' },
+            'Logística':           { dot:'bg-amber-500',   grid:'bg-amber-500 border-amber-400/50 hover:bg-amber-600' },
+            'Deslocamento diário': { dot:'bg-cyan-500',    grid:'bg-cyan-500 border-cyan-400/50 hover:bg-cyan-600' },
+            'Passeio':             { dot:'bg-indigo-500',  grid:'bg-indigo-500 border-indigo-400/50 hover:bg-indigo-600' },
+            'Restaurante':         { dot:'bg-rose-500',    grid:'bg-rose-500 border-rose-400/50 hover:bg-rose-600' },
+            'Presentes':           { dot:'bg-fuchsia-500', grid:'bg-fuchsia-500 border-fuchsia-400/50 hover:bg-fuchsia-600' },
+            'Souvenir próprio':    { dot:'bg-violet-500',  grid:'bg-violet-500 border-violet-400/50 hover:bg-violet-600' },
+            'Outros':              { dot:'bg-slate-500',   grid:'bg-slate-500 border-slate-400/50 hover:bg-slate-600' },
+        };
+        function colorFor(t) { return TYPE_COLORS[t] || TYPE_COLORS['Outros']; }
+
+        function nowISO() { return new Date().toISOString(); }
+        function saveData() {
+            try {
+                localStorage.setItem('vp4_trips', JSON.stringify(dbTrips));
+                localStorage.setItem('vp4_data', JSON.stringify(dbData));
+            } catch(err) { alert("Não foi possível salvar localmente (armazenamento cheio)."); }
+        }
+        function savePending() { localStorage.setItem('vp_pending', JSON.stringify(pendingDeletes)); }
+        function queueDelete(tipo, id) { if(!pendingDeletes[tipo].includes(String(id))) pendingDeletes[tipo].push(String(id)); savePending(); }
+
+        function goHome() { activeTripId = null; renderHome(); }
+        function formatDate(dStr) { if(!dStr) return ''; const [y,m,d] = String(dStr).split('-'); return `${d}/${m}`; }
+        function formatFull(dStr) { if(!dStr) return ''; const p = String(dStr).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : String(dStr); }
+        function brl(v) { return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+        function getVal(containerId, selector) { return document.getElementById(containerId).querySelector(selector).value; }
+        function setVal(containerId, selector, val) { document.getElementById(containerId).querySelector(selector).value = val; }
+        function activeTrip() { return dbTrips.find(t => t.id === activeTripId); }
+        function isLocked() { const t = activeTrip(); return !!(t && t.finalized); }
+        function uid() { return Date.now().toString() + Math.floor(Math.random()*1000); }
+        function isoOf(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+        function toMin(t) { if(!t) return 0; const [h,m] = String(t).split(':').map(Number); return (h*60) + (m||0); }
+
+        function tripDays() {
+            const t = activeTrip(); const out = [];
+            if(!t || !t.start || !t.end) return out;
+            let cur = new Date(t.start + 'T00:00:00'); const end = new Date(t.end + 'T00:00:00');
+            let n = 1;
+            while(cur <= end && n <= 400) { out.push({ n, iso: isoOf(cur) }); cur.setDate(cur.getDate()+1); n++; }
+            return out;
+        }
+        function dayNumber(iso) {
+            const t = activeTrip(); if(!t || !t.start || !iso) return '';
+            const a = new Date(t.start + 'T00:00:00'), b = new Date(iso + 'T00:00:00');
+            return Math.round((b - a) / 86400000) + 1;
+        }
+        function itemDays(i) {
+            const out = []; const sd = i.date, ed = i.endDate || i.date;
+            if(!sd) return out;
+            let cur = new Date(sd + 'T00:00:00'); const end = new Date(ed + 'T00:00:00');
+            let guard = 0;
+            while(cur <= end && guard < 400) { out.push(isoOf(cur)); cur.setDate(cur.getDate()+1); guard++; }
+            return out;
+        }
+        function daySegment(i, dayIso) {
+            const sd = i.date, ed = i.endDate || i.date;
+            if(!sd || dayIso < sd || dayIso > ed) return null;
+            const multi = ed > sd, isFirst = dayIso === sd, isLast = dayIso === ed;
+            if(!multi) {
+                if(i.start) return { allDay:false, segStart:i.start, segEnd:i.end||'', continues:false, continued:false };
+                return { allDay:true, continues:false, continued:false };
+            }
+            if(isFirst) { if(i.start) return { allDay:false, segStart:i.start, segEnd:'23:59', continues:true, continued:false }; return { allDay:true, continues:true, continued:false }; }
+            if(isLast)  { if(i.end)   return { allDay:false, segStart:'00:00', segEnd:i.end, continues:false, continued:true }; return { allDay:true, continues:false, continued:true }; }
+            return { allDay:true, continues:true, continued:true };
+        }
+        function tagFor(i) {
+            let extra = '';
+            if(i.type === 'Logística' && i.logi) extra = ' · ' + i.logi;
+            else if(i.type === 'Deslocamento diário' && i.desloc) extra = ' · ' + i.desloc;
+            else if(i.type === 'Outros' && i.descOutros) extra = ' · ' + i.descOutros;
+            return (i.type || '') + extra;
+        }
+
+        // ===================== SINCRONIZAÇÃO =====================
+        const SYNC_STATES = {
+            config: ['Configurar', 'bg-slate-100 text-slate-500', 'bg-slate-700 text-slate-300'],
+            off:    ['Offline',    'bg-amber-100 text-amber-700', 'bg-amber-900/40 text-amber-300'],
+            sync:   ['Sincronizando…', 'bg-indigo-100 text-indigo-700', 'bg-indigo-900/40 text-indigo-200'],
+            ok:     ['Sincronizado', 'bg-emerald-100 text-emerald-700', 'bg-emerald-900/40 text-emerald-300'],
+            err:    ['Erro de sinc.', 'bg-red-100 text-red-700', 'bg-red-900/40 text-red-300'],
+        };
+        function setStatus(st) {
+            const def = SYNC_STATES[st] || SYNC_STATES.config;
+            document.querySelectorAll('.js-sync-status').forEach(el => {
+                const dark = el.closest('header');
+                el.textContent = dark ? def[0].replace('Sincronizando…','Sinc…').replace('Sincronizado','OK') : def[0];
+                el.className = 'js-sync-status text-[10px] font-bold px-2 py-1 rounded-full ' + (dark ? def[2] : def[1]);
+            });
+            const last = localStorage.getItem('vp_last_sync');
+            const lastEl = document.getElementById('sync-last');
+            if(lastEl) lastEl.textContent = last ? ('Última: ' + new Date(last).toLocaleString('pt-BR')) : '';
+        }
+
+        function tripToRow(t) {
+            return { id:String(t.id), nome:t.name||'', inicio:t.start||'', fim:t.end||'',
+                     finalizada: t.finalized ? 'true' : 'false', finalizadaEm: t.finalizedAt||'',
+                     atualizadoEm: t.atualizadoEm||'' };
+        }
+        function rowToTrip(r) {
+            const fin = r.finalizada;
+            return { id:String(r.id), name:r.nome||'', start:String(r.inicio||''), end:String(r.fim||''),
+                     finalized: (fin===true||fin==='true'||fin==='TRUE'||fin===1||fin==='sim'),
+                     finalizedAt: r.finalizadaEm ? String(r.finalizadaEm) : null,
+                     atualizadoEm: String(r.atualizadoEm||'') };
+        }
+        function itemToRow(i, tripId) {
+            let subtipo = '';
+            if(i.type==='Logística') subtipo = i.logi||'';
+            else if(i.type==='Deslocamento diário') subtipo = i.desloc||'';
+            return { id:String(i.id), viagemId:String(tripId), data:i.date||'', dataFim:i.endDate||'',
+                     horaInicio:i.start||'', horaFim:i.end||'', nome:i.name||'', tipo:i.type||'',
+                     subtipo:subtipo, descricao:i.descOutros||'', localizador:i.code||'', status:i.status||'',
+                     valor:(Number(i.val)||0), formaPgto:i.pay||'', quemPagou:i.paid||'', quemUsou:i.used||'',
+                     atualizadoEm:i.atualizadoEm||'' };
+        }
+        function rowToItem(r) {
+            const type = r.tipo||''; const sub = String(r.subtipo||'');
+            return { id:String(r.id), date:String(r.data||''), endDate:String(r.dataFim||''),
+                     start:String(r.horaInicio||''), end:String(r.horaFim||''), name:r.nome||'', type:type,
+                     logi: type==='Logística' ? sub : '', desloc: type==='Deslocamento diário' ? sub : '',
+                     descOutros:String(r.descricao||''), code:String(r.localizador||''), status:r.status||'Confirmada',
+                     val:Number(r.valor)||0, pay:r.formaPgto||'', paid:r.quemPagou||'', used:r.quemUsou||'',
+                     atualizadoEm:String(r.atualizadoEm||''), _viagemId:String(r.viagemId||'') };
+        }
+        function allItemsRows() {
+            const out = [];
+            dbTrips.forEach(t => { const d = dbData[t.id]; if(d && d.plan) d.plan.forEach(it => out.push(itemToRow(it, t.id))); });
+            return out;
+        }
+        function adoptServerState(data) {
+            const trips = (data.viagens||[]).map(rowToTrip);
+            const items = (data.itens||[]).map(rowToItem);
+            const nd = {};
+            trips.forEach(t => nd[t.id] = { plan:[], agenda:[], gastos:[] });
+            items.forEach(it => { const vid = it._viagemId; delete it._viagemId; if(!nd[vid]) nd[vid] = { plan:[], agenda:[], gastos:[] }; nd[vid].plan.push(it); });
+            dbTrips = trips; dbData = nd; saveData();
+        }
+
+        function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => sync(), 1500); }
+
+        async function sync(manual) {
+            const url = (localStorage.getItem('vp_sync_url')||'').trim();
+            const token = (localStorage.getItem('vp_sync_token')||'').trim();
+            if(!url || !token) { setStatus('config'); if(manual) alert('Preencha a URL (/exec) e o token nos Ajustes.'); return; }
+            if(!navigator.onLine) { setStatus('off'); if(manual) alert('Você está offline. Os dados estão salvos no aparelho e vão subir quando houver internet.'); return; }
+            if(syncing) return;
+            syncing = true; setStatus('sync');
+            try {
+                const payload = { token, viagens: dbTrips.map(tripToRow), itens: allItemsRows(), excluir: pendingDeletes };
+                const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+                const data = await res.json();
+                if(!data.ok) throw new Error(data.erro || 'resposta inválida');
+                adoptServerState(data);
+                pendingDeletes = { viagens:[], itens:[] }; savePending();
+                localStorage.setItem('vp_last_sync', nowISO());
+                setStatus('ok');
+                refreshView();
+            } catch(err) {
+                setStatus(navigator.onLine ? 'err' : 'off');
+                if(manual) alert('Não consegui sincronizar: ' + err.message + '\n\nConfira a URL (/exec) e o token, e se você está online.');
+            } finally {
+                syncing = false;
+            }
+        }
+
+        function refreshView() {
+            if(!document.getElementById('modal-overlay').classList.contains('hidden')) return; // não atrapalhar edição
+            const appVisible = !document.getElementById('screen-app').classList.contains('hidden');
+            if(appVisible && activeTripId && dbData[activeTripId]) { switchTab(currentTab || 'resumo'); }
+            else if(appVisible) { goHome(); }
+            else { renderHome(); }
+        }
+
+        function openSyncModal() {
+            document.getElementById('sync-url').value = localStorage.getItem('vp_sync_url') || '';
+            document.getElementById('sync-token').value = localStorage.getItem('vp_sync_token') || '';
+            setStatus(currentStatusGuess());
+            openModal('sync');
+        }
+        function currentStatusGuess() {
+            const hasCfg = localStorage.getItem('vp_sync_url') && localStorage.getItem('vp_sync_token');
+            if(!hasCfg) return 'config';
+            if(!navigator.onLine) return 'off';
+            return localStorage.getItem('vp_last_sync') ? 'ok' : 'config';
+        }
+        function saveSyncConfig() {
+            localStorage.setItem('vp_sync_url', document.getElementById('sync-url').value.trim());
+            localStorage.setItem('vp_sync_token', document.getElementById('sync-token').value.trim());
+            sync(true);
+        }
+
+        // ================= TELA INICIAL =================
+        function renderHome() {
+            document.getElementById('screen-app').classList.add('hidden');
+            document.getElementById('screen-home').classList.remove('hidden');
+            const list = document.getElementById('trips-list'); list.innerHTML = '';
+            dbTrips.forEach(t => {
+                const badge = t.finalized
+                    ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-bold rounded uppercase tracking-wide"><i data-lucide="lock" class="w-3 h-3"></i> Finalizada</span>`
+                    : '';
+                list.innerHTML += `
+                    <div onclick="openTrip('${t.id}')" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between cursor-pointer hover:border-indigo-300">
+                        <div><h3 class="font-bold text-slate-800 text-lg">${t.name}</h3><p class="text-xs text-slate-400">${formatDate(t.start)} a ${formatDate(t.end)}</p>${badge}</div>
+                        <button onclick="event.stopPropagation(); editTrip('${t.id}')" class="p-2 text-slate-300 hover:text-indigo-600"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
+                    </div>`;
+            });
+            if(dbTrips.length === 0) list.innerHTML = '<p class="text-center text-xs text-slate-400 py-6">Nenhuma viagem ainda. Crie a primeira abaixo.</p>';
+            lucide.createIcons();
+        }
+
+        function openTrip(id) {
+            activeTripId = id;
+            if(!dbData[id]) dbData[id] = { plan: [], agenda: [], gastos: [] };
+            migrateTrip(id);
+            document.getElementById('header-trip-name').innerText = activeTrip().name;
+            document.getElementById('screen-home').classList.add('hidden');
+            document.getElementById('screen-app').classList.remove('hidden');
+            document.getElementById('screen-app').classList.add('flex');
+            selectedDay = null;
+            switchTab('resumo');
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            ['resumo', 'planejar', 'agenda'].forEach(t => {
+                document.getElementById('view-'+t).classList.add('hidden');
+                document.getElementById('view-'+t).classList.remove('flex');
+                document.getElementById('nav-'+t).classList.remove('text-indigo-600');
+                document.getElementById('nav-'+t).classList.add('text-slate-400');
+            });
+            const view = document.getElementById('view-'+tab);
+            if(tab === 'agenda') { view.classList.remove('hidden'); view.classList.add('flex'); }
+            else { view.classList.remove('hidden'); view.classList.add('block'); }
+            document.getElementById('nav-'+tab).classList.add('text-indigo-600');
+            document.getElementById('nav-'+tab).classList.remove('text-slate-400');
+            const titles = { 'resumo':'Dashboard', 'planejar':'Planejamento', 'agenda':'Agenda' };
+            document.getElementById('header-tab-name') && (document.getElementById('header-tab-name').innerText = activeTrip() ? activeTrip().name : 'Expedição');
+            if(tab === 'planejar') renderPlanejamento();
+            if(tab === 'agenda') renderAgenda();
+            if(tab === 'resumo') renderDashboard();
+            applyLock();
+        }
+
+        function applyLock() {
+            const locked = isLocked();
+            const el = document.getElementById('btn-add-plan');
+            if(el) el.style.display = locked ? 'none' : '';
+            const hl = document.getElementById('header-lock');
+            if(hl) hl.classList.toggle('hidden', !locked);
+        }
+
+        function closeAllModals() { document.getElementById('modal-overlay').classList.add('hidden'); ['trip','plan','sync'].forEach(m => document.getElementById('modal-'+m).classList.add('hidden')); }
+        function openModal(id) { document.getElementById('modal-overlay').classList.remove('hidden'); document.getElementById('modal-'+id).classList.remove('hidden'); }
+
+        // ================= MIGRAÇÃO =================
+        function migrateTrip(id) {
+            const d = dbData[id]; if(!d) return;
+            if(!Array.isArray(d.plan)) d.plan = [];
+            let changed = false;
+            if(Array.isArray(d.gastos) && d.gastos.length) {
+                d.gastos.forEach(x => d.plan.push({ id: x.id || uid(), date: x.date, endDate:'', start:'', end:'', name: x.desc || 'Gasto', type:'Outros', descOutros: x.desc || '', desloc:'', logi:'', status:'Confirmada', code:'', val: x.val||0, pay: x.pay, paid: x.paid, used: x.used, atualizadoEm: nowISO() }));
+                d.gastos = []; changed = true;
+            }
+            if(Array.isArray(d.agenda) && d.agenda.length) {
+                d.agenda.forEach(x => d.plan.push({ id: x.id || uid(), date: x.date, endDate:'', start: x.start||'', end: x.end||'', name: x.title || 'Evento', type:'Passeio', descOutros:'', desloc:'', logi:'', status:'Confirmada', code:'', val: x.val||0, pay: x.pay, paid: x.paid, used: x.used, atualizadoEm: nowISO() }));
+                d.agenda = []; changed = true;
+            }
+            d.plan.forEach(it => {
+                if(it.type === 'Deslocamento') { it.type = 'Logística'; if(!it.logi) it.logi = it.desloc || ''; it.desloc = ''; it.atualizadoEm = nowISO(); changed = true; }
+                if(!it.atualizadoEm) { it.atualizadoEm = nowISO(); changed = true; }
+            });
+            if(changed) saveData();
+        }
+
+        // VIAGEM
+        function openTripModal() { document.getElementById('trip-id').value=''; document.getElementById('trip-name').value=''; document.getElementById('trip-start').value=''; document.getElementById('trip-end').value=''; document.getElementById('btn-delete-trip').classList.add('hidden'); openModal('trip'); }
+        function editTrip(id) { const t = dbTrips.find(x => x.id===id); document.getElementById('trip-id').value=t.id; document.getElementById('trip-name').value=t.name; document.getElementById('trip-start').value=t.start; document.getElementById('trip-end').value=t.end; document.getElementById('btn-delete-trip').classList.remove('hidden'); openModal('trip'); }
+        function saveTrip(e) {
+            e.preventDefault();
+            const id = document.getElementById('trip-id').value;
+            const existing = id ? dbTrips.find(x=>x.id===id) : null;
+            const trip = { id: id||uid(), name: document.getElementById('trip-name').value, start: document.getElementById('trip-start').value, end: document.getElementById('trip-end').value, finalized: existing ? existing.finalized : false, finalizedAt: existing ? existing.finalizedAt : null, atualizadoEm: nowISO() };
+            if(id) { dbTrips[dbTrips.findIndex(x=>x.id===id)]=trip; } else { dbTrips.push(trip); dbData[trip.id]={plan:[],agenda:[],gastos:[]}; }
+            saveData(); scheduleSync(); closeAllModals(); renderHome();
+        }
+        function deleteTrip() {
+            if(confirm("Apagar tudo desta viagem?")) {
+                const id = document.getElementById('trip-id').value;
+                if(dbData[id] && dbData[id].plan) dbData[id].plan.forEach(it => queueDelete('itens', it.id));
+                queueDelete('viagens', id);
+                dbTrips = dbTrips.filter(x=>x.id!==id); delete dbData[id];
+                saveData(); scheduleSync(); closeAllModals(); renderHome();
+            }
+        }
+
+        function extractFinance(containerId) { return { val: parseFloat(getVal(containerId, '.val-input')) || 0, pay: getVal(containerId, '.pay-input'), paid: getVal(containerId, '.paid-input'), used: getVal(containerId, '.used-input') }; }
+        function injectFinance(containerId, data) { setVal(containerId, '.val-input', data.val || ''); setVal(containerId, '.pay-input', data.pay || 'Crédito'); setVal(containerId, '.paid-input', data.paid || 'Charlie'); setVal(containerId, '.used-input', data.used || 'Ambos'); updatePaidNote(); }
+        function updatePaidNote() {
+            const c = document.getElementById('p-finance-container');
+            const paid = c.querySelector('.paid-input').value;
+            const note = c.querySelector('.paid-note');
+            const used = c.querySelector('.used-input');
+            const isShared = paid === 'Gabriela e Charlie';
+            if(note) note.classList.toggle('hidden', !isShared);
+            if(used) { used.disabled = isShared; used.style.opacity = isShared ? '0.5' : '1'; }
+        }
+
+        // PLANEJAR
+        function onPlanTypeChange() {
+            const t = document.getElementById('p-type').value;
+            document.getElementById('p-logi-wrap').classList.toggle('hidden', t !== 'Logística');
+            document.getElementById('p-desloc-wrap').classList.toggle('hidden', t !== 'Deslocamento diário');
+            document.getElementById('p-outros-wrap').classList.toggle('hidden', t !== 'Outros');
+        }
+        function openPlanModal(id=null) {
+            if(isLocked()) return;
+            document.getElementById('form-plan').reset();
+            document.getElementById('p-id').value='';
+            document.getElementById('btn-del-plan').classList.add('hidden');
+            document.getElementById('p-date').value = selectedDay || (activeTripId ? activeTrip().start : '');
+            const paidSel = document.getElementById('p-finance-container').querySelector('.paid-input');
+            paidSel.onchange = updatePaidNote;
+            if(id) {
+                const i = dbData[activeTripId].plan.find(x=>x.id===id);
+                document.getElementById('p-id').value=i.id;
+                document.getElementById('p-date').value=i.date;
+                document.getElementById('p-end-date').value=i.endDate||'';
+                document.getElementById('p-start').value=i.start||'';
+                document.getElementById('p-end').value=i.end||'';
+                document.getElementById('p-name').value=i.name;
+                document.getElementById('p-status').value=i.status||'Confirmada';
+                document.getElementById('p-type').value=i.type||'Outros';
+                document.getElementById('p-code').value=i.code||'';
+                document.getElementById('p-logi').value=i.logi||'Ônibus';
+                document.getElementById('p-desloc').value=i.desloc||'Metrô';
+                document.getElementById('p-outros').value=i.descOutros||'';
+                injectFinance('p-finance-container', i);
+                document.getElementById('btn-del-plan').classList.remove('hidden');
+            } else { injectFinance('p-finance-container', {}); }
+            onPlanTypeChange(); updatePaidNote(); openModal('plan');
+        }
+        function savePlanejamento(e) {
+            e.preventDefault(); if(isLocked()) return;
+            const id = document.getElementById('p-id').value;
+            const dateVal = document.getElementById('p-date').value;
+            const endDateVal = document.getElementById('p-end-date').value;
+            if(endDateVal && endDateVal < dateVal) { alert("A data fim não pode ser anterior à data início."); return; }
+            const item = {
+                id: id||uid(), date: dateVal, endDate: endDateVal,
+                start: document.getElementById('p-start').value, end: document.getElementById('p-end').value,
+                name: document.getElementById('p-name').value, status: document.getElementById('p-status').value,
+                type: document.getElementById('p-type').value, logi: document.getElementById('p-logi').value,
+                desloc: document.getElementById('p-desloc').value, descOutros: document.getElementById('p-outros').value,
+                code: document.getElementById('p-code').value, ...extractFinance('p-finance-container'),
+                atualizadoEm: nowISO()
+            };
+            const arr = dbData[activeTripId].plan;
+            if(id) arr[arr.findIndex(x=>x.id===id)] = item; else arr.push(item);
+            selectedDay = item.date;
+            saveData(); scheduleSync(); closeAllModals(); renderPlanejamento();
+        }
+        function deletePlanejamento() {
+            if(isLocked()) return;
+            if(confirm("Apagar este lançamento?")) {
+                const delId = document.getElementById('p-id').value;
+                queueDelete('itens', delId);
+                dbData[activeTripId].plan = dbData[activeTripId].plan.filter(x=>x.id!==delId);
+                saveData(); scheduleSync(); closeAllModals(); renderPlanejamento();
+            }
+        }
+
+        function planCard(i) {
+            const sc = i.status==='Confirmada' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700';
+            const multi = i.endDate && i.endDate > i.date;
+            let timeStr = i.start ? (i.end ? `${i.start}–${i.end}` : i.start) : 'Sem hora';
+            if(multi) timeStr += ` · até ${formatDate(i.endDate)}`;
+            const payerTag = i.paid === 'Gabriela e Charlie' ? 'Ambos · acertado' : (i.paid || '');
+            const c = colorFor(i.type);
+            return `<div onclick="openPlanModal('${i.id}')" class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm relative cursor-pointer hover:border-indigo-200">
+                <span class="absolute top-3 right-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${sc}">${i.status||''}</span>
+                <div class="mb-2 flex gap-2">
+                    <span class="w-1.5 rounded-full ${c.dot} flex-none mt-0.5"></span>
+                    <div class="min-w-0">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase truncate">${timeStr} · ${tagFor(i)}</p>
+                        <p class="text-sm font-bold text-slate-800 pr-14 leading-tight mt-0.5">${i.name||''}</p>
+                    </div>
+                </div>
+                <div class="flex justify-between items-end border-t border-slate-50 pt-2">
+                    <div class="text-[10px] text-slate-400">${payerTag}${i.code?` · ${i.code}`:''}</div>
+                    <div class="text-right text-sm font-bold text-slate-700">${brl(i.val)}</div>
+                </div>
+            </div>`;
+        }
+        function renderPlanejamento() {
+            const daySel = document.getElementById('filter-plan-day');
+            const prevDay = daySel.value;
+            daySel.innerHTML = '<option value="Todos">Todos os dias</option>' + tripDays().map(d => `<option value="${d.iso}">Dia ${d.n} (${formatDate(d.iso)})</option>`).join('');
+            if([...daySel.options].some(o => o.value === prevDay)) daySel.value = prevDay;
+            const fDay = daySel.value;
+            const fPayer = document.getElementById('filter-plan-payer').value;
+            const fStatus = document.getElementById('filter-plan-status').value;
+            let arr = dbData[activeTripId].plan.slice().sort((a,b) => (a.date||'').localeCompare(b.date||'') || (a.start||'').localeCompare(b.start||''));
+            if(fDay !== 'Todos') arr = arr.filter(x => x.date === fDay);
+            if(fPayer !== 'Todos') arr = arr.filter(x => x.paid === fPayer);
+            if(fStatus !== 'Todos') arr = arr.filter(x => x.status === fStatus);
+            const list = document.getElementById('plan-list');
+            if(!arr.length) { list.innerHTML = '<p class="text-center text-xs text-slate-400 py-8">Nenhum lançamento.</p>'; return; }
+            const groups = {};
+            arr.forEach(i => { (groups[i.date] = groups[i.date] || []).push(i); });
+            let html = '';
+            Object.keys(groups).sort().forEach(date => {
+                html += `<div class="flex items-center gap-2 mt-4 mb-2"><span class="text-xs font-black text-slate-700">Dia ${dayNumber(date)}</span><span class="text-[10px] text-slate-400 font-bold">${formatDate(date)}</span><div class="flex-1 h-px bg-slate-200"></div></div>`;
+                html += '<div class="space-y-2">' + groups[date].map(planCard).join('') + '</div>';
+            });
+            list.innerHTML = html; lucide.createIcons();
+        }
+
+        // AGENDA
+        function setAgendaView(mode) {
+            agendaViewMode = mode;
+            document.getElementById('btn-view-list').className = mode === 'list' ? 'p-1.5 rounded bg-white shadow text-indigo-600 transition-all' : 'p-1.5 rounded text-slate-400 hover:text-indigo-600 transition-all';
+            document.getElementById('btn-view-grid').className = mode === 'grid' ? 'p-1.5 rounded bg-white shadow text-indigo-600 transition-all' : 'p-1.5 rounded text-slate-400 hover:text-indigo-600 transition-all';
+            renderAgenda();
+        }
+        function contTag(seg) {
+            if(seg.continued && seg.continues) return '<span class="ml-1 text-[9px] bg-slate-100 px-1 rounded text-slate-500">contínuo</span>';
+            if(seg.continues) return '<span class="ml-1 text-[9px] bg-slate-100 px-1 rounded text-slate-500">segue →</span>';
+            if(seg.continued) return '<span class="ml-1 text-[9px] bg-slate-100 px-1 rounded text-slate-500">← continuação</span>';
+            return '';
+        }
+        function allDayBlockHtml(allDayArr) {
+            if(!allDayArr.length) return '';
+            let h = `<div class="mb-3"><p class="text-[10px] font-bold text-slate-400 uppercase mb-1.5 px-1 flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> Itens sem hora agendada</p><div class="space-y-1.5">`;
+            allDayArr.forEach(({item:i, seg}) => {
+                const c = colorFor(i.type);
+                h += `<div onclick="openPlanModal('${i.id}')" class="flex items-center gap-2.5 bg-white border border-slate-100 rounded-xl p-2.5 shadow-sm cursor-pointer hover:border-indigo-200">
+                        <span class="w-2 h-9 rounded-full ${c.dot} flex-none"></span>
+                        <div class="flex-1 min-w-0"><p class="text-sm font-bold text-slate-800 leading-tight truncate">${i.name||''}</p><p class="text-[10px] text-slate-400 truncate">${tagFor(i)} ${contTag(seg)}</p></div>
+                        ${i.val>0?`<p class="text-xs font-bold text-emerald-600 flex-none">${brl(i.val)}</p>`:''}
+                    </div>`;
+            });
+            h += `</div></div>`;
+            return h;
+        }
+        function renderAgenda() {
+            const items = dbData[activeTripId].plan;
+            const daySet = new Set();
+            items.forEach(i => itemDays(i).forEach(dd => daySet.add(dd)));
+            const dates = [...daySet].sort();
+            const filter = document.getElementById('agenda-days-filter');
+            const content = document.getElementById('agenda-content-area');
+            if(!selectedDay || !dates.includes(selectedDay)) selectedDay = dates.length ? dates[0] : (activeTrip()?.start || '');
+            filter.innerHTML = dates.map(d => `<button onclick="selectedDay='${d}'; renderAgenda()" class="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${d===selectedDay?'bg-slate-900 text-white border-slate-900 shadow-md':'bg-white text-slate-500 border-slate-200'}">Dia ${dayNumber(d)} (${formatDate(d)})</button>`).join('');
+            if(dates.length===0) filter.innerHTML = `<span class="text-xs text-slate-400 py-1.5 px-2">Nenhum lançamento criado.</span>`;
+            const segs = [];
+            items.forEach(i => { const s = daySegment(i, selectedDay); if(s) segs.push({ item:i, seg:s }); });
+            const allDayArr = segs.filter(s => s.seg.allDay);
+            const timed = segs.filter(s => !s.seg.allDay).sort((a,b) => a.seg.segStart.localeCompare(b.seg.segStart));
+            const allDayHtml = allDayBlockHtml(allDayArr);
+            if(segs.length === 0) { content.innerHTML = '<p class="text-center text-xs text-slate-400 mt-10">Agenda livre para este dia.</p>'; lucide.createIcons(); return; }
+            if(agendaViewMode === 'list') {
+                let html = allDayHtml;
+                if(timed.length) {
+                    html += '<div class="space-y-0 pl-2 mt-2">';
+                    timed.forEach(({item:r, seg}) => {
+                        const c = colorFor(r.type);
+                        let label;
+                        if(seg.continued && !seg.continues) label = `até ${seg.segEnd}`;
+                        else if(seg.continues && !seg.continued) label = `${seg.segStart} em diante`;
+                        else label = `${seg.segStart}${seg.segEnd?` às ${seg.segEnd}`:''}`;
+                        html += `
+                        <div class="timeline-item relative flex gap-4 pb-4 cursor-pointer hover:opacity-80 transition-opacity" onclick="openPlanModal('${r.id}')">
+                            <div class="timeline-line"></div>
+                            <div class="flex-none mt-1 z-10"><div class="w-5 h-5 rounded-full border-4 border-[#f8fafc] ${c.dot} shadow-sm"></div></div>
+                            <div class="flex-1 bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm relative">
+                                <p class="text-[10px] font-bold text-slate-400 mb-0.5">${label} <span class="ml-1 text-[9px] bg-slate-100 px-1 rounded text-slate-500 uppercase">${tagFor(r)}</span>${contTag(seg)}</p>
+                                <h3 class="text-sm font-bold text-slate-800 leading-tight">${r.name||''}</h3>
+                                ${r.val > 0 ? `<p class="text-xs text-emerald-600 font-bold mt-1">${brl(r.val)}</p>` : ''}
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+                content.innerHTML = html;
+            } else {
+                let gridHtml = allDayHtml;
+                gridHtml += `<div class="flex h-[1440px] relative bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-4 mt-1"><div class="w-14 border-r border-slate-100 flex flex-col relative z-10 bg-white/90">`;
+                for(let i=0; i<24; i++) gridHtml += `<div class="h-[60px] text-[10px] text-slate-400 text-right pr-2 pt-1 border-b border-slate-50">${i.toString().padStart(2,'0')}:00</div>`;
+                gridHtml += `</div><div class="flex-1 relative agenda-bg">`;
+                timed.forEach(({item:r, seg}) => {
+                    const startMin = toMin(seg.segStart);
+                    const endMin = seg.segEnd ? toMin(seg.segEnd) : startMin + 60;
+                    const topPx = startMin; const heightPx = Math.max(22, endMin - startMin);
+                    const c = colorFor(r.type);
+                    const note = seg.continues ? ' (segue)' : (seg.continued ? ' (cont.)' : '');
+                    gridHtml += `<div onclick="openPlanModal('${r.id}')" class="agenda-event absolute left-1 right-2 ${c.grid} rounded-lg p-2 text-white overflow-hidden text-xs cursor-pointer border transition-colors" style="top: ${topPx}px; height: ${heightPx}px;">
+                            <div class="font-bold truncate leading-tight">${seg.segStart} - ${r.name||''}${note}</div>
+                            <div class="mt-0.5 opacity-80 text-[9px] uppercase truncate">${tagFor(r)}</div>
+                        </div>`;
+                });
+                gridHtml += `</div></div>`;
+                content.innerHTML = gridHtml;
+            }
+            lucide.createIcons();
+        }
+
+        // ================= CÁLCULOS =================
+        function computeFinance() {
+            let pC=0, pG=0, iC=0, iG=0;
+            const calc = (i) => {
+                const v = i.val || 0; if(!v) return;
+                if(i.paid === 'Gabriela e Charlie') { pC += v/2; pG += v/2; iC += v/2; iG += v/2; return; }
+                if(i.paid === 'Charlie') pC += v; else pG += v;
+                if(i.used === 'Charlie') iC += v; else if(i.used === 'Gabriela') iG += v; else { iC += v/2; iG += v/2; }
+            };
+            dbData[activeTripId].plan.forEach(calc);
+            const total = iC + iG;
+            const startD = new Date(activeTrip().start + 'T00:00:00'); const endD = new Date(activeTrip().end + 'T00:00:00');
+            let days = Math.round((endD - startD) / 86400000) + 1; if(days<1) days=1;
+            return { pC, pG, iC, iG, total, days, balC: pC - iC };
+        }
+        function computeResumoExtras(payer='Todos', used='Todos') {
+            const items = dbData[activeTripId].plan;
+            let voos=0, hosp=0, logi=0;
+            items.forEach(i => { const v=i.val||0; if(i.type==='Voo') voos+=v; else if(i.type==='Hospedagem') hosp+=v; else if(i.type==='Logística') logi+=v; });
+            const matchP = i => payer === 'Todos' || i.paid === payer;
+            const matchU = i => used === 'Todos' || i.used === used;
+            const daily = tripDays().map(d => ({ n: d.n, iso: d.iso, tot: items.filter(i => i.date===d.iso && !TRANSPORT_TYPES.includes(i.type) && matchP(i) && matchU(i)).reduce((s,i)=>s+(i.val||0),0) }));
+            const dailyTotal = daily.reduce((s,d)=>s+d.tot, 0);
+            return { voos, hosp, logi, transTotal: voos+hosp+logi, daily, dailyTotal };
+        }
+
+        // ================= DASHBOARD =================
+        function renderDashboard() {
+            const { iC, iG, total, days, balC } = computeFinance();
+            document.getElementById('dash-total').innerText = brl(total);
+            document.getElementById('dash-media').innerText = brl(total/days);
+            const acerto = document.getElementById('dash-acerto');
+            if(total===0) acerto.innerHTML = `<p class="text-xs uppercase font-bold text-slate-400">Acerto</p><p class="text-sm font-bold">Sem dados financeiros.</p>`;
+            else if(Math.abs(balC)<0.1) { acerto.className="p-4 rounded-2xl text-white shadow-md bg-emerald-500"; acerto.innerHTML=`<p class="text-xs font-bold opacity-80">Acerto Global</p><p class="text-xl font-bold">Tudo Quitado!</p>`; }
+            else if(balC>0) { acerto.className="p-4 rounded-2xl text-white shadow-md bg-amber-500"; acerto.innerHTML=`<p class="text-[10px] uppercase font-bold opacity-80 mb-1">Acerto Global</p><p class="text-xs">Gabriela deve para Charlie:</p><p class="text-2xl font-black">${brl(balC)}</p>`; }
+            else { acerto.className="p-4 rounded-2xl text-white shadow-md bg-indigo-500"; acerto.innerHTML=`<p class="text-[10px] uppercase font-bold opacity-80 mb-1">Acerto Global</p><p class="text-xs">Charlie deve para Gabriela:</p><p class="text-2xl font-black">${brl(Math.abs(balC))}</p>`; }
+            if(chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(document.getElementById('chart-shares'), { type: 'doughnut', data: { labels: ['Charlie', 'Gabriela'], datasets: [{ data: [iC, iG], backgroundColor: ['#4f46e5', '#f43f5e'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: {size: 10} } } } } });
+            const payer = document.getElementById('filter-resumo-payer') ? document.getElementById('filter-resumo-payer').value : 'Todos';
+            const used = document.getElementById('filter-resumo-used') ? document.getElementById('filter-resumo-used').value : 'Todos';
+            const ex = computeResumoExtras(payer, used);
+            document.getElementById('card-transport').innerHTML = `
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider">Logística, voos e hotéis</h4>
+                        <span class="text-base font-black text-slate-900">${brl(ex.transTotal)}</span>
+                    </div>
+                    <div class="space-y-1.5 text-sm">
+                        <div class="flex justify-between"><span class="text-slate-500 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-sky-500"></span>Voos</span><span class="font-bold text-slate-700">${brl(ex.voos)}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Hospedagem</span><span class="font-bold text-slate-700">${brl(ex.hosp)}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-amber-500"></span>Logística</span><span class="font-bold text-slate-700">${brl(ex.logi)}</span></div>
+                    </div>
+                </div>`;
+            document.getElementById('daily-total').innerText = brl(ex.dailyTotal);
+            document.getElementById('daily-rows').innerHTML = ex.daily.map(d => `
+                <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <div class="flex items-center gap-3"><span class="text-xs font-black text-slate-700 w-12">Dia ${d.n}</span><span class="text-[11px] text-slate-400 font-bold">${formatDate(d.iso)}</span></div>
+                    <span class="text-sm font-bold ${d.tot>0?'text-slate-800':'text-slate-300'}">${brl(d.tot)}</span>
+                </div>`).join('') || '<p class="text-xs text-slate-400 py-2">Defina as datas da viagem.</p>';
+            const act = document.getElementById('dash-actions');
+            const t = activeTrip();
+            if(t && t.finalized) {
+                act.innerHTML = `
+                    <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 text-center">
+                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center justify-center gap-1"><i data-lucide="lock" class="w-3.5 h-3.5"></i> Viagem finalizada</p>
+                        <p class="text-sm text-slate-600 mb-3">Encerrada em ${formatFull(t.finalizedAt)}. Contabilidade fechada.</p>
+                        <div class="flex gap-2">
+                            <button onclick="downloadXlsx()" class="flex-1 bg-slate-900 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Baixar planilha</button>
+                            <button onclick="reopenTrip()" class="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2"><i data-lucide="lock-open" class="w-4 h-4"></i> Reabrir</button>
+                        </div>
+                    </div>`;
+            } else {
+                act.innerHTML = `
+                    <div class="flex gap-2">
+                        <button onclick="downloadXlsx()" class="flex-1 bg-slate-900 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Baixar Excel</button>
+                        <button onclick="finalizeTrip()" class="flex-1 bg-emerald-600 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2"><i data-lucide="flag" class="w-4 h-4"></i> Encerrar viagem</button>
+                    </div>`;
+            }
+            lucide.createIcons(); applyLock();
+        }
+
+        // ================= FINALIZAR / REABRIR =================
+        async function finalizeTrip() {
+            if(!confirm("Encerrar esta viagem?\n\nA contabilidade será fechada e a planilha será baixada automaticamente. Você poderá reabrir para editar quando quiser.")) return;
+            const ok = await downloadXlsx();
+            if(ok === false) return;
+            const t = activeTrip();
+            t.finalized = true; t.finalizedAt = new Date().toISOString().split('T')[0]; t.atualizadoEm = nowISO();
+            saveData(); scheduleSync(); renderDashboard();
+        }
+        function reopenTrip() {
+            if(!confirm("Reabrir a viagem para edição? A contabilidade volta a ficar editável.")) return;
+            const t = activeTrip();
+            t.finalized = false; t.atualizadoEm = nowISO();
+            saveData(); scheduleSync(); renderDashboard();
+        }
+
+        // ================= EXPORTAÇÃO XLSX =================
+        async function downloadXlsx() {
+            if(typeof ExcelJS === 'undefined') { alert("A biblioteca de planilha não carregou. Verifique sua conexão e tente novamente."); return false; }
+            const trip = activeTrip(); const d = dbData[activeTripId];
+            const f = computeFinance(); const ex = computeResumoExtras();
+            const NAVY='FF1F3A5F', TEAL='FF2E6E8E', WHITE='FFFFFFFF';
+            const money = '"R$" #,##0.00';
+            const thin = {style:'thin', color:{argb:'FFCBD5E1'}};
+            const borders = {top:thin, left:thin, right:thin, bottom:thin};
+            const wb = new ExcelJS.Workbook(); wb.creator = 'Viagem Pro'; wb.created = new Date();
+            const styleHeader = (ws, rowNumber, fill) => { const row = ws.getRow(rowNumber); row.height = 22; row.eachCell({includeEmpty:true}, c => { c.font = {name:'Arial', bold:true, color:{argb:WHITE}, size:11}; c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}}; c.alignment = {horizontal:'center', vertical:'middle', wrapText:true}; c.border = borders; }); };
+            const styleBody = (row) => { row.font = {name:'Arial', size:10}; row.eachCell({includeEmpty:true}, c => { c.border = borders; c.alignment = c.alignment || {vertical:'middle'}; }); };
+            const r = wb.addWorksheet('Resumo & Acerto', {views:[{showGridLines:false}]});
+            r.columns = [{width:26},{width:16},{width:16}];
+            r.mergeCells('A1:C1'); const tcell = r.getCell('A1'); tcell.value = 'PLANEJAMENTO DA VIAGEM'; tcell.font = {name:'Arial', bold:true, size:16, color:{argb:NAVY}}; r.getRow(1).height = 26;
+            const section = (text) => { const row = r.addRow([text]); r.mergeCells(`A${row.number}:C${row.number}`); const c = row.getCell(1); c.font = {name:'Arial', bold:true, color:{argb:WHITE}, size:11}; c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:TEAL}}; c.alignment = {horizontal:'left', vertical:'middle'}; row.height = 20; };
+            const kv = (label, value, fmt, opts={}) => { const row = r.addRow([label, value]); row.getCell(1).font = {name:'Arial', bold:true, size:opts.size||11, color:opts.labelColor?{argb:opts.labelColor}:undefined}; const vc = row.getCell(2); vc.font = {name:'Arial', bold:!!opts.boldValue, size:opts.size||11}; if(fmt) vc.numFmt = fmt; return row; };
+            r.addRow([]); section('VIAGEM'); kv('Destino', trip.name || ''); kv('Período', `${formatFull(trip.start)}  a  ${formatFull(trip.end)}`); kv('Dias', f.days);
+            r.addRow([]); section('TOTAIS'); kv('Custo Global', f.total, money, {boldValue:true}); kv('Média Diária', f.total/f.days, money);
+            r.addRow([]); section('FINANCEIRO — quem pagou x quem usou'); kv('Pago por Charlie', f.pC, money); kv('Pago por Gabriela', f.pG, money); kv('Consumo de Charlie', f.iC, money); kv('Consumo de Gabriela', f.iG, money);
+            r.addRow([]); section('ACERTO');
+            let acTxt, acVal=null;
+            if(f.total===0){ acTxt='Sem dados financeiros'; } else if(Math.abs(f.balC)<0.01){ acTxt='Tudo quitado'; acVal=0; } else if(f.balC>0){ acTxt='Gabriela deve a Charlie'; acVal=f.balC; } else { acTxt='Charlie deve a Gabriela'; acVal=Math.abs(f.balC); }
+            const acRow = kv(acTxt, acVal===null?'':acVal, acVal===null?null:money, {size:12, boldValue:true}); acRow.getCell(1).font = {name:'Arial', bold:true, size:12, color:{argb:'FF9C6500'}};
+            if(trip.finalized) kv('Encerrada em', formatFull(trip.finalizedAt));
+            r.addRow([]); section('LOGÍSTICA, VOOS E HOTÉIS'); kv('Voos', ex.voos, money); kv('Hospedagem', ex.hosp, money); kv('Logística', ex.logi, money);
+            const trow = kv('Total', ex.transTotal, money, {boldValue:true}); trow.getCell(1).font = {name:'Arial', bold:true, size:11, color:{argb:NAVY}};
+            r.addRow([]); section('GASTOS POR DIA (exceto logística, voos e hotéis)');
+            const dh = r.addRow(['Dia', 'Data', 'Total (R$)']); dh.eachCell({includeEmpty:true}, c => { c.font={name:'Arial',bold:true,color:{argb:WHITE},size:10}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:TEAL}}; c.alignment={horizontal:'center'}; c.border=borders; });
+            ex.daily.forEach(dd => { const row = r.addRow([`Dia ${dd.n}`, formatFull(dd.iso), dd.tot]); row.font = {name:'Arial', size:10}; row.getCell(3).numFmt = money; row.eachCell({includeEmpty:true}, c => { c.border = borders; }); });
+            const totRow = r.addRow(['Total dos dias', '', ex.dailyTotal]); totRow.getCell(1).font = {name:'Arial', bold:true, size:11}; totRow.getCell(3).font = {name:'Arial', bold:true, size:11}; totRow.getCell(3).numFmt = money; totRow.eachCell({includeEmpty:true}, c => { c.border = borders; });
+            const p = wb.addWorksheet('Planejamento', {views:[{state:'frozen', ySplit:1, showGridLines:false}]});
+            p.columns = [{width:12},{width:12},{width:8},{width:8},{width:28},{width:17},{width:15},{width:15},{width:18},{width:13},{width:15},{width:13},{width:14}];
+            p.addRow(['Data início','Data fim','Hora início','Hora fim','Item','Tipo','Subtipo','Descrição','Localizador/Link','Valor (R$)','Pago por','Quem usou','Pagamento']); styleHeader(p, 1, NAVY);
+            d.plan.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'') || (a.start||'').localeCompare(b.start||'')).forEach(i => {
+                let subtipo = ''; if(i.type==='Logística') subtipo = i.logi||''; else if(i.type==='Deslocamento diário') subtipo = i.desloc||'';
+                const row = p.addRow([formatFull(i.date), formatFull(i.endDate||''), i.start||'', i.end||'', i.name||'', i.type||'', subtipo, i.type==='Outros' ? (i.descOutros||'') : '', i.code||'', i.val||0, i.paid==='Gabriela e Charlie' ? 'Ambos (acertado)' : (i.paid||''), i.paid==='Gabriela e Charlie' ? '50/50' : (i.used||''), i.pay||'']);
+                styleBody(row); row.getCell(10).numFmt = money;
+            });
+            try {
+                const buf = await wb.xlsx.writeBuffer();
+                const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a'); const safeName = (trip.name || 'viagem').replace(/[^\w\u00C0-\u017F]+/g, '_');
+                link.href = url; link.download = `Viagem_${safeName}.xlsx`; document.body.appendChild(link); link.click(); link.remove();
+                setTimeout(()=>URL.revokeObjectURL(url), 1500); return true;
+            } catch(err) { console.error(err); alert("Não foi possível gerar a planilha: " + err.message); return false; }
+        }
+
+        // ================= INICIALIZAÇÃO =================
+        window.onload = () => {
+            renderHome();
+            const hasCfg = localStorage.getItem('vp_sync_url') && localStorage.getItem('vp_sync_token');
+            setStatus(hasCfg ? (navigator.onLine ? 'sync' : 'off') : 'config');
+            if(hasCfg && navigator.onLine) sync();
+            if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+        };
+        window.addEventListener('online', () => sync());
+        window.addEventListener('offline', () => setStatus('off'));
+    </script>
+</body>
+</html>
