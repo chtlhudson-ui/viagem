@@ -512,7 +512,7 @@
                 dbTrips.forEach(t => { const d = dbData[t.id]; if(d && d.plan) d.plan.forEach(it => { if((it.atualizadoEm||'') > protectAfter) keepItems.push({ tripId: t.id, item: it }); }); });
             }
             // Adota o estado completo do servidor (preserva exclusões e criações do outro aparelho).
-            const trips = (data.viagens||[]).map(rowToTrip);
+            let trips = (data.viagens||[]).map(rowToTrip);
             const items = (data.itens||[]).map(rowToItem);
             const nd = {};
             trips.forEach(t => nd[t.id] = { plan:[], agenda:[], gastos:[] });
@@ -524,6 +524,15 @@
                 const arr = nd[tripId].plan; const idx = arr.findIndex(x => x.id === item.id);
                 if(idx >= 0) arr[idx] = item; else arr.push(item);
             });
+            // Exclusões (tombstones): remove o que foi apagado em qualquer aparelho, inclusive itens antigos.
+            const itemTomb = {}, tripTomb = {};
+            (data.exclusoes || []).forEach(t => {
+                const id = String(t.id), em = String(t.em || '');
+                if(String(t.tipo) === 'itens') { if(!itemTomb[id] || em > itemTomb[id]) itemTomb[id] = em; }
+                else if(String(t.tipo) === 'viagens') { if(!tripTomb[id] || em > tripTomb[id]) tripTomb[id] = em; }
+            });
+            trips = trips.filter(tr => { const em = tripTomb[tr.id]; if(em && em >= (tr.atualizadoEm||'')) { delete nd[tr.id]; return false; } return true; });
+            Object.keys(nd).forEach(vid => { nd[vid].plan = nd[vid].plan.filter(it => { const em = itemTomb[it.id]; return !(em && em >= (it.atualizadoEm||'')); }); });
             dbTrips = trips; dbData = nd; saveData();
         }
         function dataSig() { return JSON.stringify(dbTrips) + '|' + JSON.stringify(dbData); }
