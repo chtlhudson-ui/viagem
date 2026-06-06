@@ -24,7 +24,6 @@
             background-color: #f8fafc;
         }
         .safe-top { padding-top: max(env(safe-area-inset-top), 1rem); }
-        .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 5rem); }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .modal-enter { animation: slideUp 0.25s ease-out forwards; }
@@ -33,22 +32,33 @@
         .agenda-event { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
         .timeline-line::before { content: ''; position: absolute; left: 28px; top: 24px; bottom: -24px; width: 2px; background-color: #e2e8f0; z-index: 0; }
         .timeline-item:last-child .timeline-line::before { display: none; }
+        .drag-handle { touch-action: none; }
+        .trip-dragging { opacity: 0.5; }
     </style>
 </head>
 <body class="text-slate-800 flex flex-col min-h-screen">
 
     <!-- ================= TELA INICIAL ================= -->
-    <div id="screen-home" class="flex-1 flex flex-col max-w-md w-full mx-auto px-5 py-8 safe-top">
+    <div id="screen-home" class="flex-1 flex flex-col max-w-md w-full mx-auto px-5 pb-8" style="padding-top: calc(env(safe-area-inset-top, 0px) + 2rem)">
         <div class="flex items-center justify-between mb-5">
             <button onclick="openSyncModal()" class="js-sync-status text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">Sincronização</button>
-            <button onclick="openSyncModal()" class="p-2 text-slate-400 hover:text-indigo-600"><i data-lucide="settings" class="w-5 h-5"></i></button>
+            <button onclick="openSyncModal()" class="p-2.5 text-slate-400 hover:text-indigo-600 bg-slate-100 rounded-full"><i data-lucide="settings" class="w-5 h-5"></i></button>
         </div>
         <h1 class="text-3xl font-black text-slate-900 leading-tight mb-2">Para onde vamos,<br><span class="text-indigo-600">Gabriela e Charlie?</span></h1>
-        <p class="text-slate-500 text-sm mb-8">Gerencie suas expedições.</p>
+        <p class="text-slate-500 text-sm mb-6">Gerencie suas expedições.</p>
 
-        <div id="trips-list" class="space-y-4 mb-6"></div>
+        <div id="trips-active" class="space-y-3 mb-4"></div>
+        <div id="trips-empty" class="hidden text-center text-xs text-slate-400 py-6">Nenhuma viagem ainda. Crie a primeira abaixo.</div>
 
-        <button onclick="openTripModal()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 flex justify-center items-center gap-2 active:scale-95 transition-transform">
+        <div id="done-block" class="hidden mt-4 mb-2">
+            <button onclick="toggleDone()" class="w-full flex items-center justify-between text-sm font-bold text-slate-500 py-2">
+                <span class="flex items-center gap-2"><i data-lucide="check-circle-2" class="w-4 h-4"></i> Concluídas (<span id="done-count">0</span>)</span>
+                <i data-lucide="chevron-down" id="done-chevron" class="w-4 h-4 transition-transform"></i>
+            </button>
+            <div id="trips-done" class="hidden space-y-3 mt-2"></div>
+        </div>
+
+        <button onclick="openTripModal()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 flex justify-center items-center gap-2 active:scale-95 transition-transform mt-4">
             <i data-lucide="plane-takeoff"></i> Nova Viagem
         </button>
     </div>
@@ -87,13 +97,18 @@
                     <div class="relative h-40 w-full flex justify-center"><canvas id="chart-shares"></canvas></div>
                 </div>
 
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-3">Legenda das categorias</h4>
+                    <div id="legend-cats" class="flex flex-wrap gap-x-4 gap-y-2"></div>
+                </div>
+
                 <div id="dash-actions"></div>
                 <div id="card-transport"></div>
 
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                     <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider">Gastos por dia</h4>
                     <p id="daily-total" class="text-2xl font-black text-slate-900 leading-tight">R$ 0,00</p>
-                    <p class="text-[10px] text-slate-400 mb-3">Inclui deslocamento diário. Exceto logística, voos e hotéis.</p>
+                    <p class="text-[10px] text-slate-400 mb-3">Inclui deslocamento diário. Exceto logística, voos e hotéis. Barra: <span class="text-emerald-600 font-bold">verde</span> = dia mais barato, <span class="text-red-600 font-bold">vermelho</span> = mais caro.</p>
                     <div class="grid grid-cols-2 gap-2 mb-3">
                         <select id="filter-resumo-payer" onchange="renderDashboard()" class="p-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-600">
                             <option value="Todos">Quem pagou</option>
@@ -132,7 +147,7 @@
                 </div>
 
                 <button id="btn-add-plan" onclick="openPlanModal()" class="w-full bg-slate-900 text-white font-semibold py-3 rounded-xl shadow-md text-sm flex justify-center items-center gap-2">
-                    <i data-lucide="plus" class="w-4 h-4"></i> Adicionar ao Planejamento
+                    <i data-lucide="plus" class="w-4 h-4"></i> Adicionar à viagem
                 </button>
 
                 <div id="plan-list" class="space-y-1 mt-2"></div>
@@ -173,13 +188,26 @@
     <!-- ================= MODALS ================= -->
     <div id="modal-overlay" class="hidden fixed inset-0 bg-slate-900/60 z-50 backdrop-blur-sm" onclick="closeAllModals()"></div>
 
+    <!-- Modal de abertura: sincronização inicial -->
+    <div id="modal-startup" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div class="flex justify-between items-start mb-3">
+                <h2 class="text-lg font-bold">Atualização</h2>
+                <button onclick="closeStartup()" class="p-2 bg-slate-100 rounded-full"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <div id="startup-body" class="text-sm text-slate-600 min-h-[3rem]"></div>
+            <button onclick="closeStartup()" id="startup-ok" class="hidden w-full mt-4 bg-indigo-600 text-white font-bold py-3 rounded-xl">Entrar</button>
+        </div>
+    </div>
+
     <template id="tpl-finance">
         <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 mt-4">
             <h3 class="text-[10px] font-bold text-slate-600 uppercase flex items-center gap-1"><i data-lucide="wallet" class="w-4 h-4"></i> Área Financeira (Calcula no Dash)</h3>
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="block text-[10px] font-bold text-slate-500 mb-1">Valor Total (R$)</label>
-                    <input type="number" step="0.01" class="val-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-900">
+                    <input type="text" inputmode="decimal" class="val-input w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-900" placeholder="0,00">
                 </div>
                 <div>
                     <label class="block text-[10px] font-bold text-slate-500 mb-1">Forma de Pagamento</label>
@@ -263,7 +291,7 @@
                             <option value="Logística">Logística</option>
                             <option value="Deslocamento diário">Deslocamento diário</option>
                             <option value="Passeio">Passeio</option>
-                            <option value="Restaurante">Restaurante</option>
+                            <option value="Alimentação">Alimentação</option>
                             <option value="Presentes">Presentes</option>
                             <option value="Souvenir próprio">Souvenir próprio</option>
                             <option value="Outros">Outros</option>
@@ -326,7 +354,7 @@
         let chartInstance = null;
         let agendaViewMode = 'list';
         let currentTab = 'resumo';
-        let syncing = false, syncTimer = null;
+        let syncing = false, syncTimer = null, pollTimer = null;
 
         const TRANSPORT_TYPES = ['Logística', 'Voo', 'Hospedagem'];
         const TYPE_COLORS = {
@@ -335,14 +363,28 @@
             'Logística':           { dot:'bg-amber-500',   grid:'bg-amber-500 border-amber-400/50 hover:bg-amber-600' },
             'Deslocamento diário': { dot:'bg-cyan-500',    grid:'bg-cyan-500 border-cyan-400/50 hover:bg-cyan-600' },
             'Passeio':             { dot:'bg-indigo-500',  grid:'bg-indigo-500 border-indigo-400/50 hover:bg-indigo-600' },
-            'Restaurante':         { dot:'bg-rose-500',    grid:'bg-rose-500 border-rose-400/50 hover:bg-rose-600' },
+            'Alimentação':         { dot:'bg-rose-500',    grid:'bg-rose-500 border-rose-400/50 hover:bg-rose-600' },
             'Presentes':           { dot:'bg-fuchsia-500', grid:'bg-fuchsia-500 border-fuchsia-400/50 hover:bg-fuchsia-600' },
             'Souvenir próprio':    { dot:'bg-violet-500',  grid:'bg-violet-500 border-violet-400/50 hover:bg-violet-600' },
             'Outros':              { dot:'bg-slate-500',   grid:'bg-slate-500 border-slate-400/50 hover:bg-slate-600' },
         };
         function colorFor(t) { return TYPE_COLORS[t] || TYPE_COLORS['Outros']; }
 
+        function pad(n) { return String(n).padStart(2, '0'); }
         function nowISO() { return new Date().toISOString(); }
+        function isoOf(d) { return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+        function todayISO() { return isoOf(new Date()); }
+        function nowStamp() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()); }
+
+        function parseMoney(raw) {
+            let s = String(raw == null ? '' : raw).trim().replace(/\s/g, '');
+            if (!s) return 0;
+            if (s.indexOf(',') > -1 && s.indexOf('.') > -1) { s = s.replace(/\./g, '').replace(',', '.'); }
+            else if (s.indexOf(',') > -1) { s = s.replace(',', '.'); }
+            const n = parseFloat(s);
+            return isNaN(n) ? 0 : n;
+        }
+
         function saveData() {
             try {
                 localStorage.setItem('vp4_trips', JSON.stringify(dbTrips));
@@ -361,7 +403,6 @@
         function activeTrip() { return dbTrips.find(t => t.id === activeTripId); }
         function isLocked() { const t = activeTrip(); return !!(t && t.finalized); }
         function uid() { return Date.now().toString() + Math.floor(Math.random()*1000); }
-        function isoOf(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
         function toMin(t) { if(!t) return 0; const [h,m] = String(t).split(':').map(Number); return (h*60) + (m||0); }
 
         function tripDays() {
@@ -469,17 +510,19 @@
             items.forEach(it => { const vid = it._viagemId; delete it._viagemId; if(!nd[vid]) nd[vid] = { plan:[], agenda:[], gastos:[] }; nd[vid].plan.push(it); });
             dbTrips = trips; dbData = nd; saveData();
         }
+        function dataSig() { return JSON.stringify(dbTrips) + '|' + JSON.stringify(dbData); }
 
-        function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => sync(), 1500); }
+        function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(() => sync(), 1000); }
 
         async function sync(manual) {
             const url = (localStorage.getItem('vp_sync_url')||'').trim();
             const token = (localStorage.getItem('vp_sync_token')||'').trim();
-            if(!url || !token) { setStatus('config'); if(manual) alert('Preencha a URL (/exec) e o token nos Ajustes.'); return; }
-            if(!navigator.onLine) { setStatus('off'); if(manual) alert('Você está offline. Os dados estão salvos no aparelho e vão subir quando houver internet.'); return; }
-            if(syncing) return;
+            if(!url || !token) { setStatus('config'); if(manual) alert('Preencha a URL (/exec) e o token nos Ajustes.'); return false; }
+            if(!navigator.onLine) { setStatus('off'); if(manual) alert('Você está offline. Os dados estão salvos no aparelho e vão subir quando houver internet.'); return false; }
+            if(syncing) return false;
             syncing = true; setStatus('sync');
             try {
+                const before = dataSig();
                 const payload = { token, viagens: dbTrips.map(tripToRow), itens: allItemsRows(), excluir: pendingDeletes };
                 const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
                 const data = await res.json();
@@ -488,17 +531,26 @@
                 pendingDeletes = { viagens:[], itens:[] }; savePending();
                 localStorage.setItem('vp_last_sync', nowISO());
                 setStatus('ok');
-                refreshView();
+                if(dataSig() !== before) refreshView();
+                return true;
             } catch(err) {
                 setStatus(navigator.onLine ? 'err' : 'off');
                 if(manual) alert('Não consegui sincronizar: ' + err.message + '\n\nConfira a URL (/exec) e o token, e se você está online.');
+                return false;
             } finally {
                 syncing = false;
             }
         }
 
+        function startPolling() {
+            stopPolling();
+            pollTimer = setInterval(() => { if(navigator.onLine && !syncing) sync(); }, 20000);
+        }
+        function stopPolling() { if(pollTimer) clearInterval(pollTimer); pollTimer = null; }
+
         function refreshView() {
-            if(!document.getElementById('modal-overlay').classList.contains('hidden')) return; // não atrapalhar edição
+            if(!document.getElementById('modal-overlay').classList.contains('hidden')) return;
+            if(!document.getElementById('modal-startup').classList.contains('hidden')) return;
             const appVisible = !document.getElementById('screen-app').classList.contains('hidden');
             if(appVisible && activeTripId && dbData[activeTripId]) { switchTab(currentTab || 'resumo'); }
             else if(appVisible) { goHome(); }
@@ -523,23 +575,116 @@
             sync(true);
         }
 
-        // ================= TELA INICIAL =================
+        // ===================== MODAL DE ABERTURA =====================
+        function openStartup() { document.getElementById('modal-startup').classList.remove('hidden'); }
+        function closeStartup() { document.getElementById('modal-startup').classList.add('hidden'); }
+        function setStartupBody(html, showOk) {
+            document.getElementById('startup-body').innerHTML = html;
+            document.getElementById('startup-ok').classList.toggle('hidden', !showOk);
+            lucide.createIcons();
+        }
+        async function startupSync() {
+            openStartup();
+            const hasCfg = localStorage.getItem('vp_sync_url') && localStorage.getItem('vp_sync_token');
+            if(!hasCfg) { setStatus('config'); setStartupBody('<p>Sincronização ainda não configurada. Toque na <b>engrenagem</b> para conectar à base.</p>', true); return; }
+            if(!navigator.onLine) { setStatus('off'); setStartupBody('<p>Você está <b>offline</b>.<br>Seus dados locais estão salvos e vão subir automaticamente quando houver internet.</p>', true); return; }
+            setStartupBody('<div class="flex items-center gap-3 text-slate-700"><span class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin inline-block"></span> Buscando a versão mais recente…</div>', false);
+            const ok = await sync();
+            if(ok) setStartupBody('<p class="text-emerald-700 font-semibold flex items-center gap-2"><i data-lucide="check-circle"></i> Tudo atualizado! Pode entrar.</p>', true);
+            else setStartupBody('<p class="text-red-600">Não consegui sincronizar agora. Você pode entrar e tentar de novo nos Ajustes.</p>', true);
+        }
+
+        // ===================== TELA INICIAL =====================
+        function getTripOrder() { try { return JSON.parse(localStorage.getItem('vp_trip_order') || '[]'); } catch(e) { return []; } }
+        function saveTripOrder(ids) { localStorage.setItem('vp_trip_order', JSON.stringify(ids)); }
+
+        function sortedActiveTrips() {
+            const active = dbTrips.filter(t => !t.finalized);
+            const order = getTripOrder();
+            if(order.length) {
+                const idx = id => { const i = order.indexOf(String(id)); return i === -1 ? 9999 : i; };
+                return active.slice().sort((a,b) => { const ia=idx(a.id), ib=idx(b.id); if(ia!==ib) return ia-ib; return (a.start||'').localeCompare(b.start||''); });
+            }
+            return active.slice().sort((a,b) => (a.start||'').localeCompare(b.start||''));
+        }
+
+        function tripCardActive(t) {
+            return `<div data-id="${t.id}" class="trip-card bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-1">
+                <button class="drag-handle p-1 text-slate-300 active:text-indigo-500 cursor-grab flex-none"><i data-lucide="grip-vertical" class="w-5 h-5"></i></button>
+                <div class="flex-1 min-w-0 cursor-pointer py-1" onclick="openTrip('${t.id}')">
+                    <h3 class="font-bold text-slate-800 text-lg leading-tight">${t.name}</h3>
+                    <p class="text-xs text-slate-400">${formatDate(t.start)} a ${formatDate(t.end)}</p>
+                </div>
+                <button onclick="event.stopPropagation(); editTrip('${t.id}')" class="p-2 text-slate-300 hover:text-indigo-600 flex-none"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
+            </div>`;
+        }
+        function tripCardDone(t) {
+            return `<div onclick="openTrip('${t.id}')" class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer">
+                <div><h3 class="font-bold text-slate-600 text-base">${t.name}</h3><p class="text-xs text-slate-400">${formatDate(t.start)} a ${formatDate(t.end)}</p>
+                <span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-bold rounded uppercase tracking-wide"><i data-lucide="lock" class="w-3 h-3"></i> Finalizada</span></div>
+                <button onclick="event.stopPropagation(); editTrip('${t.id}')" class="p-2 text-slate-300 hover:text-indigo-600"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
+            </div>`;
+        }
+
         function renderHome() {
             document.getElementById('screen-app').classList.add('hidden');
             document.getElementById('screen-home').classList.remove('hidden');
-            const list = document.getElementById('trips-list'); list.innerHTML = '';
-            dbTrips.forEach(t => {
-                const badge = t.finalized
-                    ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-bold rounded uppercase tracking-wide"><i data-lucide="lock" class="w-3 h-3"></i> Finalizada</span>`
-                    : '';
-                list.innerHTML += `
-                    <div onclick="openTrip('${t.id}')" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between cursor-pointer hover:border-indigo-300">
-                        <div><h3 class="font-bold text-slate-800 text-lg">${t.name}</h3><p class="text-xs text-slate-400">${formatDate(t.start)} a ${formatDate(t.end)}</p>${badge}</div>
-                        <button onclick="event.stopPropagation(); editTrip('${t.id}')" class="p-2 text-slate-300 hover:text-indigo-600"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
-                    </div>`;
-            });
-            if(dbTrips.length === 0) list.innerHTML = '<p class="text-center text-xs text-slate-400 py-6">Nenhuma viagem ainda. Crie a primeira abaixo.</p>';
+            const active = sortedActiveTrips();
+            const done = dbTrips.filter(t => t.finalized).sort((a,b) => (b.start||'').localeCompare(a.start||''));
+            document.getElementById('trips-active').innerHTML = active.map(tripCardActive).join('');
+            document.getElementById('trips-empty').classList.toggle('hidden', dbTrips.length !== 0);
+            const doneBlock = document.getElementById('done-block');
+            if(done.length) {
+                doneBlock.classList.remove('hidden');
+                document.getElementById('done-count').textContent = done.length;
+                document.getElementById('trips-done').innerHTML = done.map(tripCardDone).join('');
+            } else { doneBlock.classList.add('hidden'); }
             lucide.createIcons();
+            attachTripDrag();
+        }
+
+        function toggleDone() {
+            const list = document.getElementById('trips-done');
+            const chev = document.getElementById('done-chevron');
+            const open = list.classList.toggle('hidden');
+            chev.style.transform = open ? '' : 'rotate(180deg)';
+        }
+
+        // ---- arrastar para reordenar ----
+        function attachTripDrag() {
+            const container = document.getElementById('trips-active');
+            if(!container) return;
+            container.querySelectorAll('.drag-handle').forEach(h => h.addEventListener('pointerdown', startDrag));
+        }
+        function getDragAfter(container, y) {
+            const els = [...container.querySelectorAll('.trip-card:not(.trip-dragging)')];
+            return els.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+                if(offset < 0 && offset > closest.offset) return { offset, element: child };
+                return closest;
+            }, { offset: -Infinity, element: null }).element;
+        }
+        function startDrag(e) {
+            e.preventDefault();
+            const container = document.getElementById('trips-active');
+            const card = e.target.closest('.trip-card');
+            if(!card) return;
+            card.classList.add('trip-dragging');
+            const move = (ev) => {
+                const after = getDragAfter(container, ev.clientY);
+                if(after == null) container.appendChild(card);
+                else container.insertBefore(card, after);
+            };
+            const up = () => {
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', up);
+                card.classList.remove('trip-dragging');
+                const ids = [...container.querySelectorAll('.trip-card')].map(c => c.dataset.id);
+                saveTripOrder(ids);
+            };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
         }
 
         function openTrip(id) {
@@ -567,8 +712,6 @@
             else { view.classList.remove('hidden'); view.classList.add('block'); }
             document.getElementById('nav-'+tab).classList.add('text-indigo-600');
             document.getElementById('nav-'+tab).classList.remove('text-slate-400');
-            const titles = { 'resumo':'Dashboard', 'planejar':'Planejamento', 'agenda':'Agenda' };
-            document.getElementById('header-tab-name') && (document.getElementById('header-tab-name').innerText = activeTrip() ? activeTrip().name : 'Expedição');
             if(tab === 'planejar') renderPlanejamento();
             if(tab === 'agenda') renderAgenda();
             if(tab === 'resumo') renderDashboard();
@@ -586,7 +729,7 @@
         function closeAllModals() { document.getElementById('modal-overlay').classList.add('hidden'); ['trip','plan','sync'].forEach(m => document.getElementById('modal-'+m).classList.add('hidden')); }
         function openModal(id) { document.getElementById('modal-overlay').classList.remove('hidden'); document.getElementById('modal-'+id).classList.remove('hidden'); }
 
-        // ================= MIGRAÇÃO =================
+        // ===================== MIGRAÇÃO =====================
         function migrateTrip(id) {
             const d = dbData[id]; if(!d) return;
             if(!Array.isArray(d.plan)) d.plan = [];
@@ -601,6 +744,7 @@
             }
             d.plan.forEach(it => {
                 if(it.type === 'Deslocamento') { it.type = 'Logística'; if(!it.logi) it.logi = it.desloc || ''; it.desloc = ''; it.atualizadoEm = nowISO(); changed = true; }
+                if(it.type === 'Restaurante') { it.type = 'Alimentação'; it.atualizadoEm = nowISO(); changed = true; }
                 if(!it.atualizadoEm) { it.atualizadoEm = nowISO(); changed = true; }
             });
             if(changed) saveData();
@@ -627,8 +771,8 @@
             }
         }
 
-        function extractFinance(containerId) { return { val: parseFloat(getVal(containerId, '.val-input')) || 0, pay: getVal(containerId, '.pay-input'), paid: getVal(containerId, '.paid-input'), used: getVal(containerId, '.used-input') }; }
-        function injectFinance(containerId, data) { setVal(containerId, '.val-input', data.val || ''); setVal(containerId, '.pay-input', data.pay || 'Crédito'); setVal(containerId, '.paid-input', data.paid || 'Charlie'); setVal(containerId, '.used-input', data.used || 'Ambos'); updatePaidNote(); }
+        function extractFinance(containerId) { return { val: parseMoney(getVal(containerId, '.val-input')), pay: getVal(containerId, '.pay-input'), paid: getVal(containerId, '.paid-input'), used: getVal(containerId, '.used-input') }; }
+        function injectFinance(containerId, data) { setVal(containerId, '.val-input', data.val ? Number(data.val).toFixed(2).replace('.', ',') : ''); setVal(containerId, '.pay-input', data.pay || 'Crédito'); setVal(containerId, '.paid-input', data.paid || 'Charlie'); setVal(containerId, '.used-input', data.used || 'Ambos'); updatePaidNote(); }
         function updatePaidNote() {
             const c = document.getElementById('p-finance-container');
             const paid = c.querySelector('.paid-input').value;
@@ -646,12 +790,19 @@
             document.getElementById('p-desloc-wrap').classList.toggle('hidden', t !== 'Deslocamento diário');
             document.getElementById('p-outros-wrap').classList.toggle('hidden', t !== 'Outros');
         }
+        function smartDefaultDate() {
+            const t = activeTrip();
+            const today = todayISO();
+            if(t && t.start && t.end && today >= t.start && today <= t.end) return today;
+            return selectedDay || (t ? t.start : today);
+        }
         function openPlanModal(id=null) {
             if(isLocked()) return;
             document.getElementById('form-plan').reset();
             document.getElementById('p-id').value='';
             document.getElementById('btn-del-plan').classList.add('hidden');
-            document.getElementById('p-date').value = selectedDay || (activeTripId ? activeTrip().start : '');
+            document.getElementById('p-date').value = smartDefaultDate();
+            document.getElementById('p-end-date').value = '';
             const paidSel = document.getElementById('p-finance-container').querySelector('.paid-input');
             paidSel.onchange = updatePaidNote;
             if(id) {
@@ -819,7 +970,7 @@
             } else {
                 let gridHtml = allDayHtml;
                 gridHtml += `<div class="flex h-[1440px] relative bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-4 mt-1"><div class="w-14 border-r border-slate-100 flex flex-col relative z-10 bg-white/90">`;
-                for(let i=0; i<24; i++) gridHtml += `<div class="h-[60px] text-[10px] text-slate-400 text-right pr-2 pt-1 border-b border-slate-50">${i.toString().padStart(2,'0')}:00</div>`;
+                for(let i=0; i<24; i++) gridHtml += `<div class="h-[60px] text-[10px] text-slate-400 text-right pr-2 pt-1 border-b border-slate-50">${pad(i)}:00</div>`;
                 gridHtml += `</div><div class="flex-1 relative agenda-bg">`;
                 timed.forEach(({item:r, seg}) => {
                     const startMin = toMin(seg.segStart);
@@ -838,7 +989,7 @@
             lucide.createIcons();
         }
 
-        // ================= CÁLCULOS =================
+        // ===================== CÁLCULOS =====================
         function computeFinance() {
             let pC=0, pG=0, iC=0, iG=0;
             const calc = (i) => {
@@ -864,8 +1015,14 @@
             return { voos, hosp, logi, transTotal: voos+hosp+logi, daily, dailyTotal };
         }
 
-        // ================= DASHBOARD =================
+        // ===================== DASHBOARD =====================
+        function renderLegend() {
+            const el = document.getElementById('legend-cats');
+            if(!el) return;
+            el.innerHTML = Object.keys(TYPE_COLORS).map(name => `<span class="flex items-center gap-1.5 text-[11px] text-slate-600"><span class="w-2.5 h-2.5 rounded-full ${TYPE_COLORS[name].dot}"></span>${name}</span>`).join('');
+        }
         function renderDashboard() {
+            renderLegend();
             const { iC, iG, total, days, balC } = computeFinance();
             document.getElementById('dash-total').innerText = brl(total);
             document.getElementById('dash-media').innerText = brl(total/days);
@@ -892,11 +1049,20 @@
                     </div>
                 </div>`;
             document.getElementById('daily-total').innerText = brl(ex.dailyTotal);
-            document.getElementById('daily-rows').innerHTML = ex.daily.map(d => `
-                <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                    <div class="flex items-center gap-3"><span class="text-xs font-black text-slate-700 w-12">Dia ${d.n}</span><span class="text-[11px] text-slate-400 font-bold">${formatDate(d.iso)}</span></div>
-                    <span class="text-sm font-bold ${d.tot>0?'text-slate-800':'text-slate-300'}">${brl(d.tot)}</span>
-                </div>`).join('') || '<p class="text-xs text-slate-400 py-2">Defina as datas da viagem.</p>';
+            const maxDay = Math.max(0, ...ex.daily.map(d => d.tot));
+            document.getElementById('daily-rows').innerHTML = ex.daily.map(d => {
+                const ratio = maxDay > 0 ? d.tot / maxDay : 0;
+                const hue = Math.round(120 * (1 - ratio));
+                const barColor = `hsl(${hue}, 72%, 45%)`;
+                return `
+                <div class="py-2 border-b border-slate-50 last:border-0">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-3"><span class="text-xs font-black text-slate-700 w-12">Dia ${d.n}</span><span class="text-[11px] text-slate-400 font-bold">${formatDate(d.iso)}</span></div>
+                        <span class="text-sm font-bold ${d.tot>0?'text-slate-800':'text-slate-300'}">${brl(d.tot)}</span>
+                    </div>
+                    <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:${(ratio*100).toFixed(1)}%; background:${barColor}"></div></div>
+                </div>`;
+            }).join('') || '<p class="text-xs text-slate-400 py-2">Defina as datas da viagem.</p>';
             const act = document.getElementById('dash-actions');
             const t = activeTrip();
             if(t && t.finalized) {
@@ -919,13 +1085,13 @@
             lucide.createIcons(); applyLock();
         }
 
-        // ================= FINALIZAR / REABRIR =================
+        // ===================== FINALIZAR / REABRIR =====================
         async function finalizeTrip() {
             if(!confirm("Encerrar esta viagem?\n\nA contabilidade será fechada e a planilha será baixada automaticamente. Você poderá reabrir para editar quando quiser.")) return;
             const ok = await downloadXlsx();
             if(ok === false) return;
             const t = activeTrip();
-            t.finalized = true; t.finalizedAt = new Date().toISOString().split('T')[0]; t.atualizadoEm = nowISO();
+            t.finalized = true; t.finalizedAt = todayISO(); t.atualizadoEm = nowISO();
             saveData(); scheduleSync(); renderDashboard();
         }
         function reopenTrip() {
@@ -935,7 +1101,7 @@
             saveData(); scheduleSync(); renderDashboard();
         }
 
-        // ================= EXPORTAÇÃO XLSX =================
+        // ===================== EXPORTAÇÃO XLSX =====================
         async function downloadXlsx() {
             if(typeof ExcelJS === 'undefined') { alert("A biblioteca de planilha não carregou. Verifique sua conexão e tente novamente."); return false; }
             const trip = activeTrip(); const d = dbData[activeTripId];
@@ -979,21 +1145,23 @@
                 const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a'); const safeName = (trip.name || 'viagem').replace(/[^\w\u00C0-\u017F]+/g, '_');
-                link.href = url; link.download = `Viagem_${safeName}.xlsx`; document.body.appendChild(link); link.click(); link.remove();
+                link.href = url; link.download = `Viagem_${safeName}_${nowStamp()}.xlsx`; document.body.appendChild(link); link.click(); link.remove();
                 setTimeout(()=>URL.revokeObjectURL(url), 1500); return true;
             } catch(err) { console.error(err); alert("Não foi possível gerar a planilha: " + err.message); return false; }
         }
 
-        // ================= INICIALIZAÇÃO =================
+        // ===================== INICIALIZAÇÃO =====================
         window.onload = () => {
             renderHome();
-            const hasCfg = localStorage.getItem('vp_sync_url') && localStorage.getItem('vp_sync_token');
-            setStatus(hasCfg ? (navigator.onLine ? 'sync' : 'off') : 'config');
-            if(hasCfg && navigator.onLine) sync();
+            setStatus(currentStatusGuess());
+            startupSync();
+            startPolling();
             if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
         };
         window.addEventListener('online', () => sync());
         window.addEventListener('offline', () => setStatus('off'));
+        window.addEventListener('focus', () => { if(navigator.onLine) sync(); });
+        document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && navigator.onLine) sync(); });
     </script>
 </body>
 </html>
