@@ -264,7 +264,7 @@
             <form id="form-plan" onsubmit="savePlanejamento(event)" class="space-y-4">
                 <input type="hidden" id="p-id">
                 <div class="grid grid-cols-2 gap-3">
-                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Data início</label><input type="date" id="p-date" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
+                    <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Data início</label><input type="date" id="p-date" required onchange="syncEndMin()" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
                     <div><label class="block text-[10px] uppercase font-bold text-slate-500 mb-1">Data fim (opcional)</label><input type="date" id="p-end-date" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"></div>
                 </div>
                 <div>
@@ -354,7 +354,7 @@
         let chartInstance = null;
         let agendaViewMode = 'list';
         let currentTab = 'resumo';
-        let syncing = false, syncTimer = null, pollTimer = null;
+        let syncing = false, syncTimer = null, pollTimer = null, needsResync = false;
 
         const TRANSPORT_TYPES = ['Logística', 'Voo', 'Hospedagem'];
         const TYPE_COLORS = {
@@ -502,12 +502,28 @@
             dbTrips.forEach(t => { const d = dbData[t.id]; if(d && d.plan) d.plan.forEach(it => out.push(itemToRow(it, t.id))); });
             return out;
         }
-        function adoptServerState(data) {
+        function adoptServerState(data, protectAfter) {
+            // Captura edições locais feitas DEPOIS do snapshot enviado (durante o envio em andamento),
+            // para que a resposta do servidor (que ainda não as conhecia) não as reverta.
+            const keepTrips = [];
+            const keepItems = [];
+            if(protectAfter) {
+                dbTrips.forEach(t => { if((t.atualizadoEm||'') > protectAfter) keepTrips.push(t); });
+                dbTrips.forEach(t => { const d = dbData[t.id]; if(d && d.plan) d.plan.forEach(it => { if((it.atualizadoEm||'') > protectAfter) keepItems.push({ tripId: t.id, item: it }); }); });
+            }
+            // Adota o estado completo do servidor (preserva exclusões e criações do outro aparelho).
             const trips = (data.viagens||[]).map(rowToTrip);
             const items = (data.itens||[]).map(rowToItem);
             const nd = {};
             trips.forEach(t => nd[t.id] = { plan:[], agenda:[], gastos:[] });
             items.forEach(it => { const vid = it._viagemId; delete it._viagemId; if(!nd[vid]) nd[vid] = { plan:[], agenda:[], gastos:[] }; nd[vid].plan.push(it); });
+            // Reaplica por cima as edições locais protegidas.
+            keepTrips.forEach(kt => { const idx = trips.findIndex(x => x.id === kt.id); if(idx >= 0) trips[idx] = kt; else trips.push(kt); if(!nd[kt.id]) nd[kt.id] = { plan:[], agenda:[], gastos:[] }; });
+            keepItems.forEach(({ tripId, item }) => {
+                if(!nd[tripId]) nd[tripId] = { plan:[], agenda:[], gastos:[] };
+                const arr = nd[tripId].plan; const idx = arr.findIndex(x => x.id === item.id);
+                if(idx >= 0) arr[idx] = item; else arr.push(item);
+            });
             dbTrips = trips; dbData = nd; saveData();
         }
         function dataSig() { return JSON.stringify(dbTrips) + '|' + JSON.stringify(dbData); }
@@ -519,15 +535,16 @@
             const token = (localStorage.getItem('vp_sync_token')||'').trim();
             if(!url || !token) { setStatus('config'); if(manual) alert('Preencha a URL (/exec) e o token nos Ajustes.'); return false; }
             if(!navigator.onLine) { setStatus('off'); if(manual) alert('Você está offline. Os dados estão salvos no aparelho e vão subir quando houver internet.'); return false; }
-            if(syncing) return false;
+            if(syncing) { needsResync = true; return false; }
             syncing = true; setStatus('sync');
             try {
                 const before = dataSig();
+                const pushSnapshotAt = nowISO();
                 const payload = { token, viagens: dbTrips.map(tripToRow), itens: allItemsRows(), excluir: pendingDeletes };
                 const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.erro || 'resposta inválida');
-                adoptServerState(data);
+                adoptServerState(data, pushSnapshotAt);
                 pendingDeletes = { viagens:[], itens:[] }; savePending();
                 localStorage.setItem('vp_last_sync', nowISO());
                 setStatus('ok');
@@ -539,6 +556,7 @@
                 return false;
             } finally {
                 syncing = false;
+                if(needsResync) { needsResync = false; setTimeout(() => sync(), 250); }
             }
         }
 
@@ -583,15 +601,18 @@
             document.getElementById('startup-ok').classList.toggle('hidden', !showOk);
             lucide.createIcons();
         }
-        async function startupSync() {
+        function startupSync() {
             openStartup();
             const hasCfg = localStorage.getItem('vp_sync_url') && localStorage.getItem('vp_sync_token');
             if(!hasCfg) { setStatus('config'); setStartupBody('<p>Sincronização ainda não configurada. Toque na <b>engrenagem</b> para conectar à base.</p>', true); return; }
             if(!navigator.onLine) { setStatus('off'); setStartupBody('<p>Você está <b>offline</b>.<br>Seus dados locais estão salvos e vão subir automaticamente quando houver internet.</p>', true); return; }
-            setStartupBody('<div class="flex items-center gap-3 text-slate-700"><span class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin inline-block"></span> Buscando a versão mais recente…</div>', false);
-            const ok = await sync();
-            if(ok) setStartupBody('<p class="text-emerald-700 font-semibold flex items-center gap-2"><i data-lucide="check-circle"></i> Tudo atualizado! Pode entrar.</p>', true);
-            else setStartupBody('<p class="text-red-600">Não consegui sincronizar agora. Você pode entrar e tentar de novo nos Ajustes.</p>', true);
+            // Online: dispara em segundo plano e libera a entrada imediatamente.
+            setStartupBody('<div class="flex items-center gap-2 text-slate-600"><span class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin inline-block"></span> Atualizando em segundo plano…</div>', true);
+            sync().then(ok => {
+                if(document.getElementById('modal-startup').classList.contains('hidden')) return; // já entrou
+                if(ok) setStartupBody('<p class="text-emerald-700 font-semibold flex items-center gap-2"><i data-lucide="check-circle"></i> Tudo atualizado!</p>', true);
+                else setStartupBody('<p class="text-amber-600">Sincronização pendente. Você pode entrar; tento de novo automaticamente.</p>', true);
+            });
         }
 
         // ===================== TELA INICIAL =====================
@@ -796,6 +817,12 @@
             if(t && t.start && t.end && today >= t.start && today <= t.end) return today;
             return selectedDay || (t ? t.start : today);
         }
+        function syncEndMin() {
+            const start = document.getElementById('p-date').value;
+            const end = document.getElementById('p-end-date');
+            end.min = start || '';
+            if(end.value && start && end.value < start) end.value = '';
+        }
         function openPlanModal(id=null) {
             if(isLocked()) return;
             document.getElementById('form-plan').reset();
@@ -822,7 +849,7 @@
                 injectFinance('p-finance-container', i);
                 document.getElementById('btn-del-plan').classList.remove('hidden');
             } else { injectFinance('p-finance-container', {}); }
-            onPlanTypeChange(); updatePaidNote(); openModal('plan');
+            onPlanTypeChange(); updatePaidNote(); syncEndMin(); openModal('plan');
         }
         function savePlanejamento(e) {
             e.preventDefault(); if(isLocked()) return;
