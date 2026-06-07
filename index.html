@@ -125,6 +125,12 @@
                     </div>
                     <div id="daily-rows"></div>
                 </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    <h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-1"><i data-lucide="notebook-pen" class="w-4 h-4"></i> Observações</h4>
+                    <textarea id="trip-obs" oninput="onObsInput(this)" rows="4" placeholder="Anote o que não foi contemplado, pendências, lembretes, combinados..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm resize-y leading-relaxed"></textarea>
+                    <p class="text-[10px] text-slate-400 mt-1">Salvo e sincronizado automaticamente entre os dois celulares.</p>
+                </div>
             </section>
 
             <!-- 2. ABA PLANEJAMENTO -->
@@ -377,10 +383,16 @@
         function nowStamp() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()); }
 
         function parseMoney(raw) {
-            let s = String(raw == null ? '' : raw).trim().replace(/\s/g, '');
+            let s = String(raw == null ? '' : raw).trim();
+            s = s.replace(/[^0-9.,-]/g, ''); // tira "R$", espaços e outros caracteres
             if (!s) return 0;
-            if (s.indexOf(',') > -1 && s.indexOf('.') > -1) { s = s.replace(/\./g, '').replace(',', '.'); }
-            else if (s.indexOf(',') > -1) { s = s.replace(',', '.'); }
+            if (s.indexOf(',') > -1 && s.indexOf('.') > -1) {
+                // tem os dois: o separador mais à direita é o decimal
+                if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+                else s = s.replace(/,/g, '');
+            } else if (s.indexOf(',') > -1) {
+                s = s.replace(',', '.');
+            }
             const n = parseFloat(s);
             return isNaN(n) ? 0 : n;
         }
@@ -469,14 +481,14 @@
         function tripToRow(t) {
             return { id:String(t.id), nome:t.name||'', inicio:t.start||'', fim:t.end||'',
                      finalizada: t.finalized ? 'true' : 'false', finalizadaEm: t.finalizedAt||'',
-                     atualizadoEm: t.atualizadoEm||'' };
+                     atualizadoEm: t.atualizadoEm||'', observacoes: t.obs||'' };
         }
         function rowToTrip(r) {
             const fin = r.finalizada;
             return { id:String(r.id), name:r.nome||'', start:String(r.inicio||''), end:String(r.fim||''),
                      finalized: (fin===true||fin==='true'||fin==='TRUE'||fin===1||fin==='sim'),
                      finalizedAt: r.finalizadaEm ? String(r.finalizadaEm) : null,
-                     atualizadoEm: String(r.atualizadoEm||'') };
+                     atualizadoEm: String(r.atualizadoEm||''), obs: String(r.observacoes||'') };
         }
         function itemToRow(i, tripId) {
             let subtipo = '';
@@ -578,6 +590,8 @@
         function refreshView() {
             if(!document.getElementById('modal-overlay').classList.contains('hidden')) return;
             if(!document.getElementById('modal-startup').classList.contains('hidden')) return;
+            const ae = document.activeElement;
+            if(ae && ae.id === 'trip-obs') return; // não atrapalhar quem está digitando observações
             const appVisible = !document.getElementById('screen-app').classList.contains('hidden');
             if(appVisible && activeTripId && dbData[activeTripId]) { switchTab(currentTab || 'resumo'); }
             else if(appVisible) { goHome(); }
@@ -787,7 +801,7 @@
             e.preventDefault();
             const id = document.getElementById('trip-id').value;
             const existing = id ? dbTrips.find(x=>x.id===id) : null;
-            const trip = { id: id||uid(), name: document.getElementById('trip-name').value, start: document.getElementById('trip-start').value, end: document.getElementById('trip-end').value, finalized: existing ? existing.finalized : false, finalizedAt: existing ? existing.finalizedAt : null, atualizadoEm: nowISO() };
+            const trip = { id: id||uid(), name: document.getElementById('trip-name').value, start: document.getElementById('trip-start').value, end: document.getElementById('trip-end').value, finalized: existing ? existing.finalized : false, finalizedAt: existing ? existing.finalizedAt : null, obs: existing ? (existing.obs||'') : '', atualizadoEm: nowISO() };
             if(id) { dbTrips[dbTrips.findIndex(x=>x.id===id)]=trip; } else { dbTrips.push(trip); dbData[trip.id]={plan:[],agenda:[],gastos:[]}; }
             saveData(); scheduleSync(); closeAllModals(); renderHome();
         }
@@ -1052,6 +1066,13 @@
         }
 
         // ===================== DASHBOARD =====================
+        let obsTimer = null;
+        function onObsInput(el) {
+            const t = activeTrip(); if(!t) return;
+            t.obs = el.value; t.atualizadoEm = nowISO();
+            clearTimeout(obsTimer);
+            obsTimer = setTimeout(() => { saveData(); scheduleSync(); }, 600);
+        }
         function renderLegend() {
             const el = document.getElementById('legend-cats');
             if(!el) return;
@@ -1059,6 +1080,8 @@
         }
         function renderDashboard() {
             renderLegend();
+            const obsEl = document.getElementById('trip-obs');
+            if(obsEl && document.activeElement !== obsEl) obsEl.value = (activeTrip() && activeTrip().obs) || '';
             const { iC, iG, total, days, balC } = computeFinance();
             document.getElementById('dash-total').innerText = brl(total);
             document.getElementById('dash-media').innerText = brl(total/days);
@@ -1168,6 +1191,12 @@
             const dh = r.addRow(['Dia', 'Data', 'Total (R$)']); dh.eachCell({includeEmpty:true}, c => { c.font={name:'Arial',bold:true,color:{argb:WHITE},size:10}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:TEAL}}; c.alignment={horizontal:'center'}; c.border=borders; });
             ex.daily.forEach(dd => { const row = r.addRow([`Dia ${dd.n}`, formatFull(dd.iso), dd.tot]); row.font = {name:'Arial', size:10}; row.getCell(3).numFmt = money; row.eachCell({includeEmpty:true}, c => { c.border = borders; }); });
             const totRow = r.addRow(['Total dos dias', '', ex.dailyTotal]); totRow.getCell(1).font = {name:'Arial', bold:true, size:11}; totRow.getCell(3).font = {name:'Arial', bold:true, size:11}; totRow.getCell(3).numFmt = money; totRow.eachCell({includeEmpty:true}, c => { c.border = borders; });
+            if((trip.obs||'').trim()) {
+                r.addRow([]); section('OBSERVAÇÕES');
+                const obsRow = r.addRow([String(trip.obs)]); r.mergeCells(`A${obsRow.number}:C${obsRow.number}`);
+                obsRow.getCell(1).alignment = {wrapText:true, vertical:'top'}; obsRow.getCell(1).font = {name:'Arial', size:10};
+                obsRow.height = Math.max(28, Math.min(160, Math.ceil(String(trip.obs).length / 50) * 15 + 12));
+            }
             const p = wb.addWorksheet('Planejamento', {views:[{state:'frozen', ySplit:1, showGridLines:false}]});
             p.columns = [{width:12},{width:12},{width:8},{width:8},{width:28},{width:17},{width:15},{width:15},{width:18},{width:13},{width:15},{width:13},{width:14}];
             p.addRow(['Data início','Data fim','Hora início','Hora fim','Item','Tipo','Subtipo','Descrição','Localizador/Link','Valor (R$)','Pago por','Quem usou','Pagamento']); styleHeader(p, 1, NAVY);

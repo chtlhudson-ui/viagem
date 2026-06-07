@@ -1,5 +1,5 @@
-// Viagem Pro — Service Worker (offline) — v12
-const CACHE = 'viagem-pro-v12';
+// Viagem Pro — Service Worker (offline) — v13
+const CACHE = 'viagem-pro-v13';
 
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png'];
 
