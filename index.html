@@ -536,15 +536,15 @@
                 const arr = nd[tripId].plan; const idx = arr.findIndex(x => x.id === item.id);
                 if(idx >= 0) arr[idx] = item; else arr.push(item);
             });
-            // Exclusões (tombstones): remove o que foi apagado em qualquer aparelho, inclusive itens antigos.
-            const itemTomb = {}, tripTomb = {};
+            // Exclusões (tombstones): apagado é apagado — remove em qualquer aparelho, viagens e itens.
+            const itemTomb = new Set(), tripTomb = new Set();
             (data.exclusoes || []).forEach(t => {
-                const id = String(t.id), em = String(t.em || '');
-                if(String(t.tipo) === 'itens') { if(!itemTomb[id] || em > itemTomb[id]) itemTomb[id] = em; }
-                else if(String(t.tipo) === 'viagens') { if(!tripTomb[id] || em > tripTomb[id]) tripTomb[id] = em; }
+                const id = String(t.id);
+                if(String(t.tipo) === 'itens') itemTomb.add(id);
+                else if(String(t.tipo) === 'viagens') tripTomb.add(id);
             });
-            trips = trips.filter(tr => { const em = tripTomb[tr.id]; if(em && em >= (tr.atualizadoEm||'')) { delete nd[tr.id]; return false; } return true; });
-            Object.keys(nd).forEach(vid => { nd[vid].plan = nd[vid].plan.filter(it => { const em = itemTomb[it.id]; return !(em && em >= (it.atualizadoEm||'')); }); });
+            trips = trips.filter(tr => { if(tripTomb.has(tr.id)) { delete nd[tr.id]; return false; } return true; });
+            Object.keys(nd).forEach(vid => { nd[vid].plan = nd[vid].plan.filter(it => !itemTomb.has(it.id)); });
             dbTrips = trips; dbData = nd; saveData();
         }
         function dataSig() { return JSON.stringify(dbTrips) + '|' + JSON.stringify(dbData); }
@@ -618,7 +618,7 @@
 
         // ===================== MODAL DE ABERTURA =====================
         function openStartup() { document.getElementById('modal-startup').classList.remove('hidden'); }
-        function closeStartup() { document.getElementById('modal-startup').classList.add('hidden'); }
+        function closeStartup() { document.getElementById('modal-startup').classList.add('hidden'); refreshView(); }
         function setStartupBody(html, showOk) {
             document.getElementById('startup-body').innerHTML = html;
             document.getElementById('startup-ok').classList.toggle('hidden', !showOk);
